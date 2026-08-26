@@ -24,17 +24,17 @@ import {
   X,
   Sparkles,
   Zap,
-  Check
+  Check,
+  UserCheck
 } from 'lucide-react';
 
 export const DoctorPortal: React.FC = () => {
   const { 
     currentUser, 
-    patient, 
-    incidents, 
-    documents, 
-    medicines, 
-    doctorSuggestions,
+    patient: fallbackPatient, 
+    incidents: fallbackIncidents, 
+    medicines: fallbackMedicines, 
+    doctorSuggestions: fallbackSuggestions,
     donations,
     addDoctorSuggestion,
     verifyPatientCampaign,
@@ -44,9 +44,45 @@ export const DoctorPortal: React.FC = () => {
 
   const [tokenInput, setTokenInput] = useState('');
   const [isHandshakeVerified, setIsHandshakeVerified] = useState(true);
-  const [selectedIncidentForAdvice, setSelectedIncidentForAdvice] = useState<string>(incidents[0]?.id || 'INC-001');
+  const [selectedIncidentForAdvice, setSelectedIncidentForAdvice] = useState<string>('INC-001');
   const [suggestionText, setSuggestionText] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
+
+  // Scanned / Loaded Patient Data State
+  const [scannedPatient, setScannedPatient] = useState<{
+    name: string;
+    age: number;
+    gender: string;
+    bloodGroup: string;
+    abhaId: string;
+    phone?: string;
+  }>({
+    name: fallbackPatient.name || 'Krithik',
+    age: fallbackPatient.age || 26,
+    gender: fallbackPatient.gender || 'Male',
+    bloodGroup: fallbackPatient.bloodGroup || 'O+',
+    abhaId: fallbackPatient.abhaId || '91-4920-8193-4412'
+  });
+
+  const [scannedIncidents, setScannedIncidents] = useState<any[]>(
+    fallbackIncidents.length > 0 ? fallbackIncidents : [
+      {
+        id: 'INC-001',
+        year: 2026,
+        date: '26 Aug 2026',
+        title: 'Right Distal Radius Bone Fracture',
+        hospital: 'SMS Hospital & Medical College, Jaipur',
+        doctor: 'Dr. Ram, MS Ortho',
+        diagnosis: 'Right Forearm Distal Radius Fracture from fall',
+        treatment: 'Closed reduction, fiberglass casting for 4 weeks, analgesics, and rest protocol',
+        patientDescription: 'Broke right arm after slip and fall.',
+        status: 'ACTIVE',
+        severity: 'MODERATE'
+      }
+    ]
+  );
+
+  const [scannedMedicines, setScannedMedicines] = useState<any[]>(fallbackMedicines);
 
   // Live Camera Scanner State
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
@@ -61,17 +97,48 @@ export const DoctorPortal: React.FC = () => {
 
   const pendingCampaigns = donations.filter(d => !d.verifiedByDoctor);
 
-  const handleVerifyToken = (e?: React.FormEvent, directToken?: string) => {
+  // Unpack and Verify Token / Scanned Payload
+  const handleVerifyToken = (e?: React.FormEvent, rawScannedText?: string) => {
     if (e) e.preventDefault();
-    const token = directToken || tokenInput;
-    if (!token.trim()) return;
+    const input = rawScannedText || tokenInput;
+    if (!input.trim()) return;
 
+    let token = input.trim();
+
+    // Check if raw payload has encoded data bundle (e.g. data=...)
+    if (input.includes('data=')) {
+      try {
+        const match = input.match(/data=([^&]+)/);
+        if (match) {
+          const base64Str = decodeURIComponent(match[1]);
+          const decodedJson = decodeURIComponent(escape(atob(base64Str)));
+          const payload = JSON.parse(decodedJson);
+
+          if (payload.token) token = payload.token;
+          if (payload.patient) setScannedPatient(payload.patient);
+          if (payload.incidents && payload.incidents.length > 0) {
+            setScannedIncidents(payload.incidents);
+            setSelectedIncidentForAdvice(payload.incidents[0].id);
+          }
+          if (payload.medicines) setScannedMedicines(payload.medicines);
+
+          setTokenInput(token);
+          setIsHandshakeVerified(true);
+          showToast(`✅ Scanned Patient EMR Package: ${payload.patient?.name || 'Patient'} (${payload.incidents?.length || 0} episodes unlocked)`, 'success');
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to unpack QR data payload:', err);
+      }
+    }
+
+    // Token direct match
     setTokenInput(token);
     setIsHandshakeVerified(true);
     showToast(`✅ Patient QR Handshake Verified: ${token}. Record unlocked!`, 'success');
   };
 
-  // High-performance continuous QR frame decoding with jsQR + BarcodeDetector fallback
+  // High-performance continuous QR frame decoding with jsQR
   useEffect(() => {
     if (!isCameraScannerOpen || !cameraStream) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -102,19 +169,12 @@ export const DoctorPortal: React.FC = () => {
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             
-            // 1. Primary Pure JavaScript QR Code Decoder (100% universal across all phones)
             const code = jsQR(imageData.data, imageData.width, imageData.height, {
               inversionAttempts: 'attemptBoth',
             });
 
             if (code && code.data && code.data.trim().length > 0) {
               console.log('✅ QR Code decoded by jsQR:', code.data);
-              
-              let extractedToken = code.data;
-              if (code.data.includes('token=')) {
-                const match = code.data.match(/token=([^&]+)/);
-                if (match) extractedToken = match[1];
-              }
 
               setScannedSuccess(true);
               if ('vibrate' in navigator) navigator.vibrate([80, 50, 80]);
@@ -122,38 +182,9 @@ export const DoctorPortal: React.FC = () => {
               setTimeout(() => {
                 stopCamera();
                 setScannedSuccess(false);
-                handleVerifyToken(undefined, extractedToken);
+                handleVerifyToken(undefined, code.data);
               }, 400);
               return;
-            }
-          }
-
-          // 2. Secondary Native BarcodeDetector (if available on Chrome)
-          if ('BarcodeDetector' in window) {
-            try {
-              // @ts-ignore
-              const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
-              const barcodes = await barcodeDetector.detect(video);
-              if (barcodes && barcodes.length > 0) {
-                const rawValue = barcodes[0].rawValue;
-                let extractedToken = rawValue;
-                if (rawValue.includes('token=')) {
-                  const match = rawValue.match(/token=([^&]+)/);
-                  if (match) extractedToken = match[1];
-                }
-
-                setScannedSuccess(true);
-                if ('vibrate' in navigator) navigator.vibrate([80, 50, 80]);
-
-                setTimeout(() => {
-                  stopCamera();
-                  setScannedSuccess(false);
-                  handleVerifyToken(undefined, extractedToken);
-                }, 400);
-                return;
-              }
-            } catch (e) {
-              // ignore
             }
           }
         } catch (err) {
@@ -217,11 +248,6 @@ export const DoctorPortal: React.FC = () => {
     setIsCameraScannerOpen(false);
   };
 
-  const handleSimulateScan = (scannedToken: string) => {
-    stopCamera();
-    handleVerifyToken(undefined, scannedToken);
-  };
-
   const handleAddAdvice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!suggestionText.trim()) return;
@@ -239,6 +265,7 @@ export const DoctorPortal: React.FC = () => {
 
     setSuggestionText('');
     setFollowUpDate('');
+    showToast('Signed clinical directives attached to patient incident ✓', 'success');
   };
 
   return (
@@ -316,10 +343,10 @@ export const DoctorPortal: React.FC = () => {
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <QrCode className="w-4 h-4 text-brand-cyan" />
-              <span>Scan Patient QR or Enter Temporary Token</span>
+              <span>Scan Patient QR Code</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Point your camera at the patient's screen or enter their 10-minute temporary token code.
+              Point your camera at the patient's laptop QR code to load their longitudinal records.
             </p>
           </div>
 
@@ -327,10 +354,10 @@ export const DoctorPortal: React.FC = () => {
             <button
               onClick={startCamera}
               type="button"
-              className="px-3.5 py-2 rounded-xl bg-brand-emerald/20 hover:bg-brand-emerald/30 border border-brand-emerald/40 text-brand-emerald font-semibold text-xs transition-colors flex items-center gap-1.5"
+              className="px-4 py-2.5 rounded-xl bg-brand-emerald/20 hover:bg-brand-emerald/30 border border-brand-emerald/40 text-brand-emerald font-bold text-xs transition-colors flex items-center gap-1.5 shadow-glow-emerald"
             >
               <Camera className="w-4 h-4 text-brand-emerald" />
-              <span>Camera Scan</span>
+              <span>Launch Camera Scanner</span>
             </button>
 
             <form onSubmit={handleVerifyToken} className="flex items-center gap-2">
@@ -345,7 +372,7 @@ export const DoctorPortal: React.FC = () => {
                 type="submit"
                 className="px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs hover:brightness-110 shadow-glow-emerald whitespace-nowrap"
               >
-                Verify Token
+                Verify
               </button>
             </form>
           </div>
@@ -359,13 +386,14 @@ export const DoctorPortal: React.FC = () => {
           {/* Patient Identity Badge */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white/[0.02] border border-white/10 text-xs shadow-spatial-sm">
             <div className="flex items-center gap-3">
-              <span className="font-bold text-white text-sm">{patient.name}</span>
-              <span className="text-slate-400">({patient.age}y / {patient.gender} / Blood: <strong className="text-brand-rose">{patient.bloodGroup}</strong>)</span>
-              <span className="font-mono text-brand-cyan">ABHA: {patient.abhaId}</span>
+              <UserCheck className="w-4 h-4 text-brand-emerald" />
+              <span className="font-bold text-white text-sm">{scannedPatient.name}</span>
+              <span className="text-slate-400">({scannedPatient.age}y / {scannedPatient.gender} / Blood: <strong className="text-brand-rose">{scannedPatient.bloodGroup}</strong>)</span>
+              <span className="font-mono text-brand-cyan">ABHA: {scannedPatient.abhaId}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full bg-brand-emerald/15 text-brand-emerald border border-brand-emerald/30 text-[10px] font-bold">
-                Access Granted: FULL_HISTORY
+                Access Granted: FULL_EMR
               </span>
             </div>
           </div>
@@ -373,15 +401,15 @@ export const DoctorPortal: React.FC = () => {
           {/* Incidents & Suggestions Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
-            {/* Left: Patient Episodes & Files */}
+            {/* Left: Patient Episodes & Clinical Trajectory */}
             <div className="lg:col-span-7 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-mono font-bold uppercase text-slate-400">
-                  Permitted Medical Incidents ({incidents.length})
+                  Permitted Medical Incidents ({scannedIncidents.length})
                 </h3>
               </div>
 
-              {incidents.map(inc => (
+              {scannedIncidents.map(inc => (
                 <GlassPanel
                   key={inc.id}
                   variant="base"
@@ -389,7 +417,7 @@ export const DoctorPortal: React.FC = () => {
                   onClick={() => setSelectedIncidentId(inc.id)}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold text-brand-cyan">{inc.id} • {inc.date}</span>
+                    <span className="font-mono text-xs font-bold text-brand-cyan">{inc.id} • {inc.date || `${inc.year}`}</span>
                     <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${inc.status === 'ACTIVE' ? 'bg-brand-emerald/20 text-brand-emerald' : 'bg-slate-800 text-slate-400'}`}>
                       {inc.status}
                     </span>
@@ -398,32 +426,41 @@ export const DoctorPortal: React.FC = () => {
                   <p className="text-xs text-slate-300 leading-relaxed italic">
                     "{inc.patientDescription || inc.reason}"
                   </p>
-                  <div className="text-xs text-brand-emerald font-semibold">
-                    Diagnosis: {inc.diagnosis}
+                  
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/5 space-y-1">
+                    <div className="text-xs text-brand-emerald font-semibold">
+                      Diagnosis: {inc.diagnosis}
+                    </div>
+                    {inc.treatment && (
+                      <div className="text-[11px] text-slate-300">
+                        Protocol: {inc.treatment}
+                      </div>
+                    )}
                   </div>
+
                   <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
                     <span>{inc.hospital} • {inc.doctor}</span>
-                    <span className="text-brand-cyan underline font-medium">Click to inspect full drawer →</span>
+                    <span className="text-brand-cyan underline font-medium">Inspect Incident Drawer →</span>
                   </div>
                 </GlassPanel>
               ))}
 
-              {incidents.length === 0 && (
+              {scannedIncidents.length === 0 && (
                 <div className="p-8 text-center rounded-2xl bg-[#090d16] border border-white/10 text-slate-400 text-xs">
-                  No recorded incidents in patient profile yet.
+                  No recorded incidents found for this patient token.
                 </div>
               )}
             </div>
 
-            {/* Right: Record Clinical Suggestion / Prescription */}
+            {/* Right: Record Clinical Suggestion / Directives */}
             <div className="lg:col-span-5 space-y-4">
               <GlassPanel variant="glow-emerald" className="p-6 space-y-4">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Plus className="w-4 h-4 text-brand-emerald" />
-                  <span>Add Doctor Suggestion / Directives</span>
+                  <span>Add Doctor Directives / Advice</span>
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Record official clinical directives attached directly to the patient's episode.
+                  Record official clinical directives attached directly to {scannedPatient.name}'s incident.
                 </p>
 
                 <form onSubmit={handleAddAdvice} className="space-y-4 text-xs">
@@ -434,15 +471,15 @@ export const DoctorPortal: React.FC = () => {
                       onChange={(e) => setSelectedIncidentForAdvice(e.target.value)}
                       className="w-full bg-[#0f1524] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                     >
-                      {incidents.map(inc => (
+                      {scannedIncidents.map(inc => (
                         <option key={inc.id} value={inc.id}>{inc.id} - {inc.title.substring(0, 25)}</option>
                       ))}
-                      {incidents.length === 0 && <option value="INC-001">INC-001 - Current Episode</option>}
+                      {scannedIncidents.length === 0 && <option value="INC-001">INC-001 - Current Episode</option>}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 font-mono mb-1">Clinical Suggestion / Instructions *</label>
+                    <label className="block text-slate-400 font-mono mb-1">Clinical Directive / Instructions *</label>
                     <textarea
                       rows={4}
                       required
@@ -468,7 +505,7 @@ export const DoctorPortal: React.FC = () => {
                     type="submit"
                     className="w-full py-2.5 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs hover:brightness-110 shadow-glow-emerald"
                   >
-                    Record & Sign Clinical Suggestion
+                    Sign & Attach Clinical Directive
                   </button>
                 </form>
               </GlassPanel>
@@ -513,7 +550,7 @@ export const DoctorPortal: React.FC = () => {
                 ) : (
                   <span className="text-xs font-mono text-brand-emerald font-bold bg-black/80 px-3 py-1.5 rounded-full border border-brand-emerald flex items-center gap-1.5 shadow-glow-emerald">
                     <Check className="w-4 h-4 text-brand-emerald stroke-[3]" />
-                    <span>QR CODE DECODED!</span>
+                    <span>PATIENT RECORD LOADED!</span>
                   </span>
                 )}
               </div>
@@ -525,27 +562,6 @@ export const DoctorPortal: React.FC = () => {
                 <p className="text-xs">{cameraError}</p>
               </div>
             )}
-          </div>
-
-          {/* Quick Simulation Trigger */}
-          <div className="space-y-2 pt-1">
-            <div className="text-[11px] font-mono text-slate-400">Or tap to instantly test with a patient token:</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleSimulateScan('AURA-SEC-1474-TOK')}
-                className="p-2.5 rounded-xl bg-brand-emerald/15 hover:bg-brand-emerald/25 border border-brand-emerald/40 text-brand-emerald font-mono font-bold text-center"
-              >
-                Token AURA-SEC-1474
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSimulateScan('AURA-SEC-9102-TOK')}
-                className="p-2.5 rounded-xl bg-brand-cyan/15 hover:bg-brand-cyan/25 border border-brand-cyan/40 text-brand-cyan font-mono font-bold text-center"
-              >
-                Token AURA-SEC-9102
-              </button>
-            </div>
           </div>
         </div>
       </Modal>

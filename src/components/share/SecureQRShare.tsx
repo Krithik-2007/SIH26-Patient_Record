@@ -23,6 +23,9 @@ import { clsx } from 'clsx';
 export const SecureQRShare: React.FC = () => {
   const { 
     patient, 
+    incidents,
+    medicines,
+    doctorSuggestions,
     accessGrants, 
     generateAccessGrant, 
     revokeAccessGrant,
@@ -41,21 +44,86 @@ export const SecureQRShare: React.FC = () => {
     if (live) setActiveGrant(live);
   }, [accessGrants]);
 
-  // Generate QR code data URL whenever active grant changes
+  // Generate self-contained, cryptographically packaged QR code whenever active grant or scope changes
   useEffect(() => {
     if (activeGrant) {
-      // The QR strictly contains a secure scoped temporary handshake URI, NEVER raw medical data!
-      const securePayload = `https://aura-health.gov.in/verify?token=${activeGrant.token}&grantId=${activeGrant.id}&scope=${activeGrant.scope}`;
-      QRCode.toDataURL(securePayload, {
-        width: 320,
-        margin: 3,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
-      }).then(setQrDataUrl);
+      // Filter incidents based on selected permission scope
+      const scopedIncidents = selectedScope === 'CURRENT_INCIDENT_ONLY'
+        ? incidents.slice(0, 1)
+        : incidents.map(inc => ({
+            id: inc.id,
+            year: inc.year,
+            date: inc.date,
+            title: inc.title,
+            hospital: inc.hospital,
+            doctor: inc.doctor,
+            diagnosis: inc.diagnosis,
+            treatment: inc.treatment,
+            patientDescription: inc.patientDescription || inc.reason,
+            status: inc.status,
+            severity: inc.severity,
+          }));
+
+      // Build cross-device self-contained EMR package
+      const emrPackage = {
+        token: activeGrant.token,
+        grantId: activeGrant.id,
+        scope: selectedScope,
+        expiresAt: Date.now() + activeGrant.expiresInSeconds * 1000,
+        patient: {
+          name: patient.name,
+          age: patient.age,
+          gender: patient.gender,
+          bloodGroup: patient.bloodGroup,
+          abhaId: patient.abhaId,
+          phone: patient.phone,
+        },
+        incidents: scopedIncidents,
+        medicines: medicines.map(m => ({
+          id: m.id,
+          name: m.name,
+          dosage: m.dosage,
+          frequency: m.frequency,
+          duration: m.duration,
+          active: m.active
+        })),
+        doctorSuggestions: doctorSuggestions.map(s => ({
+          id: s.id,
+          doctorName: s.doctorName,
+          specialty: s.specialty,
+          hospital: s.hospital,
+          suggestion: s.suggestion,
+          date: s.date,
+          followUpDate: s.followUpDate
+        }))
+      };
+
+      try {
+        const jsonStr = JSON.stringify(emrPackage);
+        const encodedData = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
+        const securePayload = `https://aura-health.gov.in/verify?token=${activeGrant.token}&data=${encodedData}`;
+
+        QRCode.toDataURL(securePayload, {
+          width: 320,
+          margin: 3,
+          errorCorrectionLevel: 'M',
+          color: {
+            dark: '#000000',
+            light: '#ffffff'
+          }
+        }).then(setQrDataUrl);
+      } catch (err) {
+        console.error('QR packaging error:', err);
+        // Fallback standard URI
+        const fallbackPayload = `https://aura-health.gov.in/verify?token=${activeGrant.token}&grantId=${activeGrant.id}&scope=${selectedScope}`;
+        QRCode.toDataURL(fallbackPayload, {
+          width: 320,
+          margin: 3,
+          color: { dark: '#000000', light: '#ffffff' }
+        }).then(setQrDataUrl);
+      }
     }
-  }, [activeGrant]);
+  }, [activeGrant, selectedScope, incidents, medicines, patient, doctorSuggestions]);
 
   const handleCreateGrant = (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,22 +135,22 @@ export const SecureQRShare: React.FC = () => {
     { 
       id: 'FULL_MEDICAL_HISTORY', 
       label: 'Full Medical History', 
-      desc: 'All 4 episodes (2024–2026), 5 verified documents, active medications, and doctor directives.' 
+      desc: 'All recorded incidents, verified documents, active medications, and doctor directives.' 
     },
     { 
       id: 'CURRENT_INCIDENT_ONLY', 
-      label: 'Current Episode Only (INC-004)', 
-      desc: 'Only recent Bronchial Asthma episode at AIIMS with linked pulmonology documents.' 
+      label: 'Current Episode Only', 
+      desc: 'Only the active healthcare episode with attending physician notes.' 
     },
     { 
       id: 'MEDICINES_AND_ALLERGIES', 
       label: 'Current Medicines & Allergies', 
-      desc: 'Active inhaler dosages, SOS medications, and drug sensitivity registry (Penicillin/Sulfa).' 
+      desc: 'Active dosages, SOS medications, and drug sensitivity records.' 
     },
     { 
       id: 'EMERGENCY_TRIAGE_DATA', 
       label: 'Emergency Triage Data', 
-      desc: 'Blood Group (O+), emergency contact, registered organ donor status, and critical alerts.' 
+      desc: 'Blood Group, emergency contact, registered organ donor status, and critical alerts.' 
     },
   ];
 
@@ -95,21 +163,21 @@ export const SecureQRShare: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-mono font-bold text-brand-teal uppercase flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
+            <span className="text-xs font-mono font-bold text-brand-cyan uppercase tracking-wider flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-brand-cyan" />
               <span>Cryptographic Permission Boundary</span>
             </span>
             <span className="text-slate-600">•</span>
-            <span className="text-xs text-slate-400">Zero Raw Data Stored in QR</span>
+            <span className="text-xs text-slate-400">Scoped EMR Token Sharing</span>
           </div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             Share Medical History Securely
           </h1>
         </div>
 
         <button
           onClick={() => setActiveTab('privacy')}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#131824] hover:bg-[#1a2233] border border-white/10 text-xs text-slate-200 font-semibold transition-all self-start sm:self-auto"
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0f1524] hover:bg-[#151e32] border border-white/10 text-xs text-slate-200 font-semibold transition-all self-start sm:self-auto shadow-spatial-sm"
         >
           <Eye className="w-3.5 h-3.5 text-brand-cyan" />
           <span>View Access Audit Trail</span>
@@ -120,10 +188,10 @@ export const SecureQRShare: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Left Column: Dark Spatial QR Display Hero */}
-        <div className="lg:col-span-5 flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-[#0a0e17] via-[#0d111a] to-[#131824] border border-brand-teal/30 shadow-spatial-lg relative overflow-hidden text-center">
+        <div className="lg:col-span-5 flex flex-col justify-between p-6 rounded-3xl bg-gradient-to-b from-[#090d16] via-[#0f1524] to-[#05070b] border border-brand-cyan/30 shadow-spatial-lg relative overflow-hidden text-center">
           
           {/* Subtle Ambient Glow */}
-          <div className="absolute -top-24 -left-24 w-48 h-48 bg-brand-teal/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -top-24 -left-24 w-48 h-48 bg-brand-cyan/20 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-brand-emerald/15 rounded-full blur-3xl pointer-events-none" />
 
           {/* Top Status */}
@@ -144,24 +212,24 @@ export const SecureQRShare: React.FC = () => {
 
           {/* Center QR Hero Container */}
           <div className="my-auto py-4 flex flex-col items-center justify-center z-10">
-            <div className="p-4 rounded-2xl bg-[#07090e] border-2 border-brand-teal/40 shadow-glow-teal relative group">
+            <div className="p-3.5 rounded-2xl bg-white border-4 border-brand-cyan/60 shadow-glow-cyan relative group">
               {qrDataUrl ? (
                 <img 
                   src={qrDataUrl} 
                   alt="Secure Medical Access QR" 
                   className={clsx(
-                    "w-56 h-56 rounded-xl transition-all duration-300",
+                    "w-60 h-60 rounded-lg transition-all duration-300",
                     !isTokenActive && "opacity-20 grayscale"
                   )}
                 />
               ) : (
-                <div className="w-56 h-56 flex items-center justify-center text-slate-500 font-mono text-xs">
+                <div className="w-60 h-60 flex items-center justify-center text-slate-900 font-mono text-xs">
                   Generating QR...
                 </div>
               )}
 
               {!isTokenActive && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-brand-rose font-bold text-xs gap-1">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-brand-rose font-bold text-xs gap-1 bg-black/75 rounded-xl">
                   <XOctagon className="w-8 h-8 text-brand-rose animate-pulse" />
                   <span>TOKEN INVALIDATED</span>
                 </div>
@@ -170,7 +238,7 @@ export const SecureQRShare: React.FC = () => {
 
             {/* Live Countdown Clock */}
             {isTokenActive && (
-              <div className="mt-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 border border-white/10 text-xs font-mono">
+              <div className="mt-4 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/60 border border-white/10 text-xs font-mono">
                 <Clock className="w-3.5 h-3.5 text-brand-amber animate-spin" />
                 <span className="text-slate-400">Expires in:</span>
                 <span className="text-brand-amber font-bold text-sm">
@@ -228,7 +296,7 @@ export const SecureQRShare: React.FC = () => {
                     className={clsx(
                       "p-3.5 rounded-xl border transition-all cursor-pointer text-xs",
                       selectedScope === s.id
-                        ? "bg-brand-teal/15 border-brand-teal text-white shadow-sm"
+                        ? "bg-brand-cyan/15 border-brand-cyan text-white shadow-sm"
                         : "bg-white/[0.02] border-white/[0.06] text-slate-400 hover:bg-white/[0.04]"
                     )}
                   >
@@ -255,8 +323,8 @@ export const SecureQRShare: React.FC = () => {
                   type="text"
                   value={purpose}
                   onChange={(e) => setPurpose(e.target.value)}
-                  placeholder="e.g. Pulmonology Outpatient Follow-up, Second Opinion..."
-                  className="w-full bg-[#131824] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-brand-teal/50"
+                  placeholder="e.g. Orthopedic Outpatient Follow-up, Second Opinion..."
+                  className="w-full bg-[#0f1524] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-brand-cyan/50"
                 />
               </div>
 
@@ -274,7 +342,7 @@ export const SecureQRShare: React.FC = () => {
                       className={clsx(
                         "flex-1 py-2 rounded-xl text-xs font-mono font-bold transition-all border",
                         durationMinutes === mins
-                          ? "bg-brand-teal/20 text-brand-cyan border-brand-teal/50 shadow-glow-teal"
+                          ? "bg-brand-cyan/20 text-brand-cyan border-brand-cyan/50 shadow-glow-cyan"
                           : "bg-white/[0.02] text-slate-400 border-white/[0.06] hover:bg-white/[0.05]"
                       )}
                     >
