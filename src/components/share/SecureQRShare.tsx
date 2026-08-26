@@ -47,11 +47,11 @@ export const SecureQRShare: React.FC = () => {
       // The QR strictly contains a secure scoped temporary handshake URI, NEVER raw medical data!
       const securePayload = `https://aura-health.gov.in/verify?token=${activeGrant.token}&grantId=${activeGrant.id}&scope=${activeGrant.scope}`;
       QRCode.toDataURL(securePayload, {
-        width: 280,
-        margin: 2,
+        width: 320,
+        margin: 3,
         color: {
-          dark: '#0284c7',
-          light: '#07090e'
+          dark: '#000000',
+          light: '#ffffff'
         }
       }).then(setQrDataUrl);
     }

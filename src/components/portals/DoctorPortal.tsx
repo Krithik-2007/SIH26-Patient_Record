@@ -3,6 +3,7 @@ import { usePatient } from '../../context/PatientContext';
 import { GlassPanel } from '../common/GlassPanel';
 import { Badge } from '../common/Badge';
 import { Modal } from '../common/Modal';
+import jsQR from 'jsqr';
 import { 
   Stethoscope, 
   QrCode, 
@@ -22,7 +23,8 @@ import {
   Upload,
   X,
   Sparkles,
-  Zap
+  Zap,
+  Check
 } from 'lucide-react';
 
 export const DoctorPortal: React.FC = () => {
@@ -51,7 +53,10 @@ export const DoctorPortal: React.FC = () => {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanningActive, setIsScanningActive] = useState(false);
+  const [scannedSuccess, setScannedSuccess] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   const pendingCampaigns = donations.filter(d => !d.verifiedByDoctor);
@@ -66,7 +71,7 @@ export const DoctorPortal: React.FC = () => {
     showToast(`✅ Patient QR Handshake Verified: ${token}. Record unlocked!`, 'success');
   };
 
-  // Real-time Barcode / QR Code Scanner Loop
+  // High-performance continuous QR frame decoding with jsQR + BarcodeDetector fallback
   useEffect(() => {
     if (!isCameraScannerOpen || !cameraStream) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -74,40 +79,85 @@ export const DoctorPortal: React.FC = () => {
     }
 
     let isSubscribed = true;
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement('canvas');
+    }
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-    // Check for native BarcodeDetector API (Android Chrome, iOS 17+, modern browsers)
     const scanFrame = async () => {
-      if (!isSubscribed || !videoRef.current || videoRef.current.readyState < 2) {
+      if (!isSubscribed || !videoRef.current) {
         if (isSubscribed) animationFrameRef.current = requestAnimationFrame(scanFrame);
         return;
       }
 
-      if ('BarcodeDetector' in window) {
+      const video = videoRef.current;
+
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
         try {
-          // @ts-ignore
-          const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
-          const barcodes = await barcodeDetector.detect(videoRef.current);
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
 
-          if (barcodes && barcodes.length > 0) {
-            const rawValue = barcodes[0].rawValue;
-            console.log('QR Code detected:', rawValue);
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // 1. Primary Pure JavaScript QR Code Decoder (100% universal across all phones)
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth',
+            });
 
-            // Extract token from URL or direct string
-            let extractedToken = rawValue;
-            if (rawValue.includes('token=')) {
-              const match = rawValue.match(/token=([^&]+)/);
-              if (match) extractedToken = match[1];
+            if (code && code.data && code.data.trim().length > 0) {
+              console.log('✅ QR Code decoded by jsQR:', code.data);
+              
+              let extractedToken = code.data;
+              if (code.data.includes('token=')) {
+                const match = code.data.match(/token=([^&]+)/);
+                if (match) extractedToken = match[1];
+              }
+
+              setScannedSuccess(true);
+              if ('vibrate' in navigator) navigator.vibrate([80, 50, 80]);
+
+              setTimeout(() => {
+                stopCamera();
+                setScannedSuccess(false);
+                handleVerifyToken(undefined, extractedToken);
+              }, 400);
+              return;
             }
+          }
 
-            // Haptic vibration feedback if supported
-            if ('vibrate' in navigator) navigator.vibrate(100);
+          // 2. Secondary Native BarcodeDetector (if available on Chrome)
+          if ('BarcodeDetector' in window) {
+            try {
+              // @ts-ignore
+              const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+              const barcodes = await barcodeDetector.detect(video);
+              if (barcodes && barcodes.length > 0) {
+                const rawValue = barcodes[0].rawValue;
+                let extractedToken = rawValue;
+                if (rawValue.includes('token=')) {
+                  const match = rawValue.match(/token=([^&]+)/);
+                  if (match) extractedToken = match[1];
+                }
 
-            stopCamera();
-            handleVerifyToken(undefined, extractedToken);
-            return;
+                setScannedSuccess(true);
+                if ('vibrate' in navigator) navigator.vibrate([80, 50, 80]);
+
+                setTimeout(() => {
+                  stopCamera();
+                  setScannedSuccess(false);
+                  handleVerifyToken(undefined, extractedToken);
+                }, 400);
+                return;
+              }
+            } catch (e) {
+              // ignore
+            }
           }
         } catch (err) {
-          console.debug('Barcode detection frame error:', err);
+          console.debug('Scan frame error:', err);
         }
       }
 
@@ -127,13 +177,18 @@ export const DoctorPortal: React.FC = () => {
   // Start Camera Feed
   const startCamera = async () => {
     setCameraError(null);
+    setScannedSuccess(false);
     setIsCameraScannerOpen(true);
     setIsScanningActive(true);
 
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } }
+          video: { 
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
         });
         setCameraStream(stream);
         if (videoRef.current) {
@@ -144,7 +199,7 @@ export const DoctorPortal: React.FC = () => {
       }
     } catch (err) {
       console.warn('Camera permission or device error:', err);
-      setCameraError('Camera access was not granted. You can type the token code or click a test scan below.');
+      setCameraError('Camera access was not granted. You can type the token code or tap an instant test token below.');
     }
   };
 
@@ -446,12 +501,21 @@ export const DoctorPortal: React.FC = () => {
 
             {/* Holographic Scanning Reticle */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-48 h-48 border-2 border-dashed border-brand-cyan/80 rounded-2xl relative flex items-center justify-center">
-                <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-brand-emerald to-transparent absolute top-1/2 -translate-y-1/2 animate-bounce" />
-                <span className="text-[10px] font-mono text-brand-cyan font-bold bg-black/70 px-2.5 py-1 rounded-full border border-brand-cyan/30 flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-brand-emerald animate-pulse" />
-                  <span>ALIGN QR CODE</span>
-                </span>
+              <div className={`w-52 h-52 border-2 ${scannedSuccess ? 'border-brand-emerald bg-brand-emerald/20' : 'border-dashed border-brand-cyan/80'} rounded-2xl relative flex items-center justify-center transition-all duration-300`}>
+                {!scannedSuccess ? (
+                  <>
+                    <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-brand-emerald to-transparent absolute top-1/2 -translate-y-1/2 animate-bounce" />
+                    <span className="text-[10px] font-mono text-brand-cyan font-bold bg-black/70 px-2.5 py-1 rounded-full border border-brand-cyan/30 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-brand-emerald animate-pulse" />
+                      <span>ALIGN QR CODE</span>
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs font-mono text-brand-emerald font-bold bg-black/80 px-3 py-1.5 rounded-full border border-brand-emerald flex items-center gap-1.5 shadow-glow-emerald">
+                    <Check className="w-4 h-4 text-brand-emerald stroke-[3]" />
+                    <span>QR CODE DECODED!</span>
+                  </span>
+                )}
               </div>
             </div>
 
