@@ -21,7 +21,8 @@ import {
   HeartHandshake,
   Upload,
   X,
-  Sparkles
+  Sparkles,
+  Zap
 } from 'lucide-react';
 
 export const DoctorPortal: React.FC = () => {
@@ -49,53 +50,121 @@ export const DoctorPortal: React.FC = () => {
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isScanningActive, setIsScanningActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   const pendingCampaigns = donations.filter(d => !d.verifiedByDoctor);
 
-  const handleVerifyToken = (e?: React.FormEvent) => {
+  const handleVerifyToken = (e?: React.FormEvent, directToken?: string) => {
     if (e) e.preventDefault();
-    if (!tokenInput.trim()) return;
+    const token = directToken || tokenInput;
+    if (!token.trim()) return;
+
+    setTokenInput(token);
     setIsHandshakeVerified(true);
-    showToast(`Token ${tokenInput} authenticated. Permitted patient records loaded.`, 'success');
+    showToast(`✅ Patient QR Handshake Verified: ${token}. Record unlocked!`, 'success');
   };
+
+  // Real-time Barcode / QR Code Scanner Loop
+  useEffect(() => {
+    if (!isCameraScannerOpen || !cameraStream) {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      return;
+    }
+
+    let isSubscribed = true;
+
+    // Check for native BarcodeDetector API (Android Chrome, iOS 17+, modern browsers)
+    const scanFrame = async () => {
+      if (!isSubscribed || !videoRef.current || videoRef.current.readyState < 2) {
+        if (isSubscribed) animationFrameRef.current = requestAnimationFrame(scanFrame);
+        return;
+      }
+
+      if ('BarcodeDetector' in window) {
+        try {
+          // @ts-ignore
+          const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+          const barcodes = await barcodeDetector.detect(videoRef.current);
+
+          if (barcodes && barcodes.length > 0) {
+            const rawValue = barcodes[0].rawValue;
+            console.log('QR Code detected:', rawValue);
+
+            // Extract token from URL or direct string
+            let extractedToken = rawValue;
+            if (rawValue.includes('token=')) {
+              const match = rawValue.match(/token=([^&]+)/);
+              if (match) extractedToken = match[1];
+            }
+
+            // Haptic vibration feedback if supported
+            if ('vibrate' in navigator) navigator.vibrate(100);
+
+            stopCamera();
+            handleVerifyToken(undefined, extractedToken);
+            return;
+          }
+        } catch (err) {
+          console.debug('Barcode detection frame error:', err);
+        }
+      }
+
+      if (isSubscribed) {
+        animationFrameRef.current = requestAnimationFrame(scanFrame);
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(scanFrame);
+
+    return () => {
+      isSubscribed = false;
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, [isCameraScannerOpen, cameraStream]);
 
   // Start Camera Feed
   const startCamera = async () => {
     setCameraError(null);
     setIsCameraScannerOpen(true);
+    setIsScanningActive(true);
+
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
+          video: { facingMode: { ideal: 'environment' } }
         });
         setCameraStream(stream);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
       } else {
-        setCameraError('Camera access not supported in this browser. You can use manual token lookup.');
+        setCameraError('Camera access is not supported by your browser. Please enter the token manually.');
       }
     } catch (err) {
       console.warn('Camera permission or device error:', err);
-      setCameraError('Camera permission not granted or device not available. You can simulate scan or enter token.');
+      setCameraError('Camera access was not granted. You can type the token code or click a test scan below.');
     }
   };
 
   // Stop Camera Feed
   const stopCamera = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
     }
+    setIsScanningActive(false);
     setIsCameraScannerOpen(false);
   };
 
   const handleSimulateScan = (scannedToken: string) => {
-    setTokenInput(scannedToken);
     stopCamera();
-    setIsHandshakeVerified(true);
-    showToast(`QR Code Scanned Successfully! Loaded Token: ${scannedToken}`, 'success');
+    handleVerifyToken(undefined, scannedToken);
   };
 
   const handleAddAdvice = (e: React.FormEvent) => {
@@ -142,7 +211,7 @@ export const DoctorPortal: React.FC = () => {
         <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
           <button
             onClick={startCamera}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs shadow-glow-emerald hover:brightness-110"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs shadow-glow-emerald hover:brightness-110 active:scale-95 transition-all"
           >
             <Camera className="w-4 h-4 text-slate-950" />
             <span>Open Camera QR Scanner</span>
@@ -195,7 +264,7 @@ export const DoctorPortal: React.FC = () => {
               <span>Scan Patient QR or Enter Temporary Token</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Scan patient's QR code with camera or enter the 10-minute temporary cryptographic token.
+              Point your camera at the patient's screen or enter their 10-minute temporary token code.
             </p>
           </div>
 
@@ -203,7 +272,7 @@ export const DoctorPortal: React.FC = () => {
             <button
               onClick={startCamera}
               type="button"
-              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl bg-brand-emerald/20 hover:bg-brand-emerald/30 border border-brand-emerald/40 text-brand-emerald font-semibold text-xs transition-colors flex items-center gap-1.5"
             >
               <Camera className="w-4 h-4 text-brand-emerald" />
               <span>Camera Scan</span>
@@ -212,10 +281,10 @@ export const DoctorPortal: React.FC = () => {
             <form onSubmit={handleVerifyToken} className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder="e.g. AURA-SEC-9102-TOK"
+                placeholder="e.g. AURA-SEC-1474-TOK"
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
-                className="bg-[#0f1524] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-brand-cyan font-mono focus:outline-none focus:border-brand-emerald/50"
+                className="bg-[#0f1524] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-brand-cyan font-mono focus:outline-none focus:border-brand-emerald/50 uppercase"
               />
               <button
                 type="submit"
@@ -358,7 +427,7 @@ export const DoctorPortal: React.FC = () => {
         isOpen={isCameraScannerOpen}
         onClose={stopCamera}
         title="Live Camera QR Code Scanner"
-        subtitle="Point your camera at the patient's AURA Health QR Token or upload QR image."
+        subtitle="Point your camera at the patient's AURA Health QR code to auto-decode."
         maxWidth="md"
       >
         <div className="space-y-5 text-xs">
@@ -377,10 +446,11 @@ export const DoctorPortal: React.FC = () => {
 
             {/* Holographic Scanning Reticle */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-48 h-48 border-2 border-dashed border-brand-cyan/80 rounded-2xl relative animate-pulse flex items-center justify-center">
+              <div className="w-48 h-48 border-2 border-dashed border-brand-cyan/80 rounded-2xl relative flex items-center justify-center">
                 <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-brand-emerald to-transparent absolute top-1/2 -translate-y-1/2 animate-bounce" />
-                <span className="text-[10px] font-mono text-brand-cyan font-bold bg-black/60 px-2 py-0.5 rounded">
-                  ALIGN QR CODE HERE
+                <span className="text-[10px] font-mono text-brand-cyan font-bold bg-black/70 px-2.5 py-1 rounded-full border border-brand-cyan/30 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-brand-emerald animate-pulse" />
+                  <span>ALIGN QR CODE</span>
                 </span>
               </div>
             </div>
@@ -395,21 +465,21 @@ export const DoctorPortal: React.FC = () => {
 
           {/* Quick Simulation Trigger */}
           <div className="space-y-2 pt-1">
-            <div className="text-[11px] font-mono text-slate-400">Instant Test Scans:</div>
+            <div className="text-[11px] font-mono text-slate-400">Or tap to instantly test with a patient token:</div>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => handleSimulateScan('AURA-SEC-9102-TOK')}
+                onClick={() => handleSimulateScan('AURA-SEC-1474-TOK')}
                 className="p-2.5 rounded-xl bg-brand-emerald/15 hover:bg-brand-emerald/25 border border-brand-emerald/40 text-brand-emerald font-mono font-bold text-center"
               >
-                Scan Token AURA-SEC-9102
+                Token AURA-SEC-1474
               </button>
               <button
                 type="button"
-                onClick={() => handleSimulateScan('AURA-SEC-8821-TOK')}
+                onClick={() => handleSimulateScan('AURA-SEC-9102-TOK')}
                 className="p-2.5 rounded-xl bg-brand-cyan/15 hover:bg-brand-cyan/25 border border-brand-cyan/40 text-brand-cyan font-mono font-bold text-center"
               >
-                Scan Token AURA-SEC-8821
+                Token AURA-SEC-9102
               </button>
             </div>
           </div>
