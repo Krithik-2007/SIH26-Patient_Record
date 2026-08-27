@@ -9,18 +9,30 @@ import {
   FileText, 
   CheckCircle2, 
   ArrowRight, 
-  AlertCircle,
-  Building2,
-  Stethoscope,
-  Calendar,
-  X,
-  Image as ImageIcon
+  AlertCircle, 
+  Building2, 
+  Stethoscope, 
+  Calendar, 
+  X, 
+  GitBranch,
+  Layers,
+  Sparkle
 } from 'lucide-react';
+import { clsx } from 'clsx';
 
 export const CreateIncidentModal: React.FC = () => {
-  const { isCreateIncidentOpen, setIsCreateIncidentOpen, createIncident } = usePatient();
+  const { 
+    isCreateIncidentOpen, 
+    setIsCreateIncidentOpen, 
+    createIncident, 
+    branchIncident, 
+    incidents 
+  } = usePatient();
   
   const [step, setStep] = useState<1 | 2>(1);
+  const [isBranchOfExisting, setIsBranchOfExisting] = useState(false);
+  const [parentIncidentId, setParentIncidentId] = useState(incidents[0]?.id || '');
+  const [stageOrCycle, setStageOrCycle] = useState('');
   const [category, setCategory] = useState<string>('Orthopedic / Fracture');
   const [patientNarrative, setPatientNarrative] = useState('');
   const [hospital, setHospital] = useState('');
@@ -30,15 +42,14 @@ export const CreateIncidentModal: React.FC = () => {
   
   // Multi-file upload state
   const [attachedFiles, setAttachedFiles] = useState<{ file: File; preview: string }[]>([]);
-  const [isProcessingAI, setIsProcessingAI] = useState(false);
 
   const categories = [
     'Orthopedic / Fracture',
+    'Oncology / Cancer Care',
     'Fever & Infection',
     'Surgical Episode',
     'Respiratory & Allergy',
-    'Gastrointestinal',
-    'Routine Outpatient Follow-up'
+    'Chronic Illness Management'
   ];
 
   const handleFileDrop = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -48,16 +59,6 @@ export const CreateIncidentModal: React.FC = () => {
         preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
       }));
       setAttachedFiles(prev => [...prev, ...newFiles]);
-
-      // Auto-extract keywords from filenames
-      newFiles.forEach(({ file }) => {
-        const lower = file.name.toLowerCase();
-        if (lower.includes('fortis')) setHospital('Fortis Orthopedic & Trauma Center');
-        if (lower.includes('ananya') || lower.includes('iyer')) setDoctor('Dr. Ananya Iyer, MS Ortho');
-        if (lower.includes('fracture') || lower.includes('xray') || lower.includes('arm')) {
-          setDiagnosis('Right Distal Radius Hairline Fracture');
-        }
-      });
     }
   };
 
@@ -71,28 +72,50 @@ export const CreateIncidentModal: React.FC = () => {
 
     const rawFiles = attachedFiles.map(a => a.file);
 
-    await createIncident(
-      {
-        title: `${category} Episode`,
-        hospital: hospital || 'Consulting Clinic',
-        doctor: doctor || 'Attending Physician',
-        department: 'Clinical Care',
-        reason: patientNarrative,
-        patientDescription: patientNarrative,
-        diagnosis: diagnosis || `Clinical assessment for ${category.toLowerCase()}`,
-        treatment: 'Prescribed medication, immobilization and outpatient rest protocol',
-        severity
-      },
-      rawFiles
-    );
+    if (isBranchOfExisting && parentIncidentId) {
+      await branchIncident(
+        parentIncidentId,
+        {
+          title: `${category} — ${stageOrCycle || 'Follow-up Sub-Episode'}`,
+          stageOrCycle: stageOrCycle || 'Follow-up Phase',
+          hospital: hospital || 'Specialty Care Center',
+          doctor: doctor || 'Attending Physician',
+          department: category,
+          reason: patientNarrative,
+          patientDescription: patientNarrative,
+          diagnosis: diagnosis || `Longitudinal follow-up for ${category}`,
+          treatment: 'Prescribed protocol and monitoring',
+          severity
+        },
+        rawFiles
+      );
+    } else {
+      await createIncident(
+        {
+          title: `${category} Episode`,
+          stageOrCycle: stageOrCycle || (category.includes('Oncology') ? 'Initial Staging' : undefined),
+          hospital: hospital || 'Consulting Clinic',
+          doctor: doctor || 'Attending Physician',
+          department: category,
+          reason: patientNarrative,
+          patientDescription: patientNarrative,
+          diagnosis: diagnosis || `Clinical assessment for ${category.toLowerCase()}`,
+          treatment: 'Prescribed medication and care protocol',
+          severity
+        },
+        rawFiles
+      );
+    }
 
     // Reset form
     setStep(1);
+    setIsBranchOfExisting(false);
     setCategory('Orthopedic / Fracture');
     setPatientNarrative('');
     setHospital('');
     setDoctor('');
     setDiagnosis('');
+    setStageOrCycle('');
     setAttachedFiles([]);
     setIsCreateIncidentOpen(false);
   };
@@ -101,32 +124,78 @@ export const CreateIncidentModal: React.FC = () => {
     <Modal
       isOpen={isCreateIncidentOpen}
       onClose={() => setIsCreateIncidentOpen(false)}
-      title="Register New Medical Incident"
-      subtitle="Log your healthcare episode and upload multiple medical documents/photos."
+      title="Register New Medical Incident / Branch"
+      subtitle="Log a new standalone episode or branch an ongoing chronic condition (e.g. Cancer, Fracture rehab)."
       maxWidth="2xl"
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-5 text-xs">
         
         {/* Step Progression Indicators */}
         <div className="flex items-center gap-2 pb-2 border-b border-white/[0.08]">
-          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold ${
+          <div className={clsx(
+            "flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold",
             step === 1 ? 'bg-brand-teal text-slate-950 shadow-glow-teal' : 'bg-white/5 text-slate-400'
-          }`}>
+          )}>
             <span>1</span>
-            <span>What Happened?</span>
+            <span>Episode Details & Branching</span>
           </div>
           <ArrowRight className="w-3.5 h-3.5 text-slate-600" />
-          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold ${
+          <div className={clsx(
+            "flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold",
             step === 2 ? 'bg-brand-teal text-slate-950 shadow-glow-teal' : 'bg-white/5 text-slate-400'
-          }`}>
+          )}>
             <span>2</span>
-            <span>Upload Multiple Documents & Confirm</span>
+            <span>Upload Artifacts & Confirm</span>
           </div>
         </div>
 
         {/* STEP 1: WHAT HAPPENED? */}
         {step === 1 && (
-          <div className="space-y-5 animate-fadeIn">
+          <div className="space-y-4 animate-fadeIn">
+            
+            {/* Branch vs Standalone Toggle */}
+            <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-white flex items-center gap-2">
+                  <GitBranch className="w-4 h-4 text-brand-cyan" />
+                  <span>Is this a branch / follow-up cycle of an existing condition?</span>
+                </label>
+                <input
+                  type="checkbox"
+                  checked={isBranchOfExisting}
+                  onChange={(e) => setIsBranchOfExisting(e.target.checked)}
+                  className="w-4 h-4 accent-brand-cyan cursor-pointer"
+                />
+              </div>
+
+              {isBranchOfExisting && (
+                <div className="pt-2 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-mono mb-1">Select Parent Episode *</label>
+                    <select
+                      value={parentIncidentId}
+                      onChange={(e) => setParentIncidentId(e.target.value)}
+                      className="w-full bg-[#131824] border border-white/10 rounded-lg p-2 text-white"
+                    >
+                      {incidents.map(inc => (
+                        <option key={inc.id} value={inc.id}>{inc.id} - {inc.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-mono mb-1">Stage / Cycle Label</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cycle 2 AC Chemo, Post-Op Rehab Phase 1"
+                      value={stageOrCycle}
+                      onChange={(e) => setStageOrCycle(e.target.value)}
+                      className="w-full bg-[#131824] border border-white/10 rounded-lg p-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Category selection */}
             <div>
               <label className="block text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -138,11 +207,12 @@ export const CreateIncidentModal: React.FC = () => {
                     key={cat}
                     type="button"
                     onClick={() => setCategory(cat)}
-                    className={`p-2.5 rounded-xl text-xs font-semibold text-left transition-all border ${
+                    className={clsx(
+                      "p-2.5 rounded-xl text-xs font-semibold text-left transition-all border",
                       category === cat
                         ? 'bg-brand-teal/20 text-brand-cyan border-brand-teal/50 shadow-[0_0_15px_rgba(14,165,233,0.15)]'
                         : 'bg-white/[0.02] text-slate-400 border-white/[0.06] hover:bg-white/[0.05] hover:text-white'
-                    }`}
+                    )}
                   >
                     {cat}
                   </button>
@@ -152,22 +222,22 @@ export const CreateIncidentModal: React.FC = () => {
 
             {/* Patient Narrative */}
             <div>
-              <label className="block text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                 Describe What Happened In Your Own Words *
               </label>
               <textarea
                 rows={3}
                 required
-                placeholder="Example: Fell from bike onto right outstretched arm. Sharp wrist pain, severe swelling, cannot move fingers without pain..."
+                placeholder="Example: Attending cycle 2 chemotherapy infusion, or fell from bike onto right wrist..."
                 value={patientNarrative}
                 onChange={(e) => setPatientNarrative(e.target.value)}
-                className="w-full bg-[#131824] border border-white/10 rounded-xl p-3.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-brand-teal/50"
+                className="w-full bg-[#131824] border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-brand-teal/50"
               />
             </div>
 
             {/* Severity Tag */}
             <div>
-              <label className="block text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                 Severity
               </label>
               <div className="flex items-center gap-2">
@@ -176,11 +246,12 @@ export const CreateIncidentModal: React.FC = () => {
                     key={sev}
                     type="button"
                     onClick={() => setSeverity(sev)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                    className={clsx(
+                      "px-3 py-1.5 rounded-xl text-xs font-bold transition-all border",
                       severity === sev
                         ? 'bg-brand-teal/20 text-brand-cyan border-brand-teal/50'
                         : 'bg-white/[0.02] text-slate-400 border-white/[0.06]'
-                    }`}
+                    )}
                   >
                     {sev}
                   </button>
@@ -188,7 +259,7 @@ export const CreateIncidentModal: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end pt-3">
+            <div className="flex justify-end pt-2">
               <button
                 type="button"
                 disabled={!patientNarrative.trim()}
@@ -204,8 +275,7 @@ export const CreateIncidentModal: React.FC = () => {
 
         {/* STEP 2: MULTI-FILE UPLOAD & CONFIRM */}
         {step === 2 && (
-          <div className="space-y-5 animate-fadeIn">
-            {/* Multi-File Upload Dropzone */}
+          <div className="space-y-4 animate-fadeIn">
             <div className="border-2 border-dashed border-white/15 hover:border-brand-teal/50 rounded-2xl p-6 text-center bg-black/20 transition-all relative">
               <input
                 type="file"
@@ -216,100 +286,77 @@ export const CreateIncidentModal: React.FC = () => {
               />
               
               <div className="flex flex-col items-center gap-2 pointer-events-none">
-                <div className="w-12 h-12 rounded-2xl bg-brand-teal/10 border border-brand-teal/30 flex items-center justify-center text-brand-cyan shadow-glow-teal">
-                  <Upload className="w-6 h-6" />
+                <div className="w-10 h-10 rounded-2xl bg-brand-teal/10 border border-brand-teal/30 flex items-center justify-center text-brand-cyan">
+                  <Upload className="w-5 h-5" />
                 </div>
-                <div className="text-xs font-bold text-white mt-1">
-                  Select or drag & drop multiple photos/X-rays/prescriptions
+                <div className="text-xs font-bold text-white">
+                  Drop diagnostic photos, biopsy reports, or X-rays
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Select multiple files simultaneously • Instant client-side preview
+                  Select multiple files simultaneously
                 </p>
               </div>
             </div>
 
-            {/* Attached Files List / Thumbnails */}
             {attachedFiles.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-mono text-slate-400">
-                  Attached Documents ({attachedFiles.length}):
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {attachedFiles.map((item, idx) => (
-                    <div key={idx} className="relative rounded-xl bg-[#131824] border border-white/10 p-2 text-xs flex items-center gap-2 overflow-hidden">
-                      {item.preview ? (
-                        <img src={item.preview} alt="Preview" className="w-10 h-10 rounded object-cover shrink-0 bg-black" />
-                      ) : (
-                        <div className="w-10 h-10 rounded bg-black/40 flex items-center justify-center shrink-0 text-brand-cyan">
-                          <FileText className="w-5 h-5" />
-                        </div>
-                      )}
-                      <div className="min-w-0 pr-4">
-                        <div className="text-white font-semibold truncate text-[11px]">{item.file.name}</div>
-                        <div className="text-slate-500 text-[10px] font-mono">{(item.file.size / (1024 * 1024)).toFixed(1)} MB</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFile(idx)}
-                        className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-white/10 hover:bg-brand-rose text-white flex items-center justify-center text-[10px]"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {attachedFiles.map((item, idx) => (
+                  <div key={idx} className="relative rounded-xl bg-[#131824] border border-white/10 p-2 flex items-center gap-2 overflow-hidden">
+                    {item.preview ? (
+                      <img src={item.preview} alt="Preview" className="w-8 h-8 rounded object-cover shrink-0" />
+                    ) : (
+                      <FileText className="w-5 h-5 text-brand-cyan shrink-0" />
+                    )}
+                    <span className="text-white truncate text-[11px]">{item.file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(idx)}
+                      className="absolute top-1 right-1 text-slate-400 hover:text-white"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* Hospital, Doctor & Diagnosis Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">Hospital / Clinic</label>
+                <label className="block text-slate-400 font-mono mb-1">Hospital / Clinic</label>
                 <input
                   type="text"
-                  placeholder="e.g. Fortis Orthopedic & Trauma Center"
+                  placeholder="e.g. SMS Hospital / Tata Memorial"
                   value={hospital}
                   onChange={(e) => setHospital(e.target.value)}
-                  className="w-full bg-[#131824] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full bg-[#131824] border border-white/10 rounded-xl p-2 text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">Attending Doctor</label>
+                <label className="block text-slate-400 font-mono mb-1">Attending Doctor</label>
                 <input
                   type="text"
-                  placeholder="e.g. Dr. Ananya Iyer"
+                  placeholder="e.g. Dr. Ram, MS Ortho"
                   value={doctor}
                   onChange={(e) => setDoctor(e.target.value)}
-                  className="w-full bg-[#131824] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  className="w-full bg-[#131824] border border-white/10 rounded-xl p-2 text-white"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-mono text-slate-400 mb-1">Doctor's Diagnosis</label>
-              <input
-                type="text"
-                placeholder="e.g. Non-displaced right distal radius fracture"
-                value={diagnosis}
-                onChange={(e) => setDiagnosis(e.target.value)}
-                className="w-full bg-[#131824] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-              />
             </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-white/[0.08]">
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="text-xs text-slate-400 hover:text-white font-medium"
+                className="text-xs text-slate-400 hover:text-white"
               >
-                ← Back to description
+                ← Back
               </button>
 
               <button
                 type="submit"
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-teal to-cyan-500 text-slate-950 font-extrabold text-xs shadow-glow-teal hover:brightness-110"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-teal to-cyan-500 text-slate-950 font-extrabold text-xs shadow-glow-teal hover:brightness-110"
               >
-                Confirm & Add Incident to Timeline
+                {isBranchOfExisting ? 'Confirm & Attach Sub-Episode Branch' : 'Confirm & Add Incident to Timeline'}
               </button>
             </div>
           </div>

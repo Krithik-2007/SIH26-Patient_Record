@@ -79,6 +79,16 @@ export const TimelineEventCard: React.FC<TimelineEventCardProps> = ({
             {isActive ? '● ACTIVE' : '✓ CURED & CLOSED'}
           </span>
           <Badge severity={incident.severity} />
+          {incident.parentIncidentId && (
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 flex items-center gap-1">
+              <span>Branch</span>
+            </span>
+          )}
+          {incident.milestones && incident.milestones.length > 0 && (
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-brand-emerald/15 text-brand-emerald border border-brand-emerald/30 flex items-center gap-1">
+              <span>{incident.milestones.length} milestones</span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

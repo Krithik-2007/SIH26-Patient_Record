@@ -19,7 +19,8 @@ import {
   DonationContribution,
   TimeOfDay,
   AIMode,
-  IncidentScale
+  IncidentScale,
+  IncidentMilestone
 } from '../types';
 import {
   INITIAL_PATIENT,
@@ -97,6 +98,16 @@ interface PatientContextType {
   createPatientDonationCampaign: (data: Partial<DonationCampaign>, proofFiles?: File[]) => Promise<DonationCampaign>;
   verifyPatientCampaign: (campaignId: string, doctorNotes?: string) => void;
   processDonationPayment: (campaignId: string, amount: number, paymentMethod: 'UPI' | 'CARD' | 'NET_BANKING', donorName?: string) => void;
+
+  // Longitudinal Incident Branching
+  branchIncident: (parentIncidentId: string, newEpisodeData: Partial<Incident>, files?: File[]) => Promise<string>;
+  addIncidentMilestone: (incidentId: string, milestoneData: Omit<IncidentMilestone, 'id'>) => void;
+
+  // Schemes & Government Management
+  createScheme: (schemeData: Partial<HealthcareScheme>) => void;
+
+  // Police & Medico-Legal Verification
+  verifyPoliceAccess: (token: string, officerDetails: { officerName: string; badgeNumber: string; stationName: string; firNumber?: string; purpose: string }) => any;
 
   // Case Studies
   submitDeceasedCaseStudy: (data: Partial<CaseStudy>, consentConfirmed: boolean) => Promise<CaseStudy>;
@@ -405,6 +416,136 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
     );
     showToast(`Incident ${incidentId} reopened as Active`, 'info');
+  };
+
+  const branchIncident = async (parentIncidentId: string, newEpisodeData: Partial<Incident>, files?: File[]): Promise<string> => {
+    const parent = incidents.find(inc => inc.id === parentIncidentId);
+    const newId = `INC-00${incidents.length + 1}`;
+    const now = new Date();
+    const year = now.getFullYear();
+    const date = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    const newBranchedIncident: Incident = {
+      id: newId,
+      patientId: patient.id,
+      parentIncidentId,
+      year,
+      date,
+      createdAt: now.toISOString(),
+      title: newEpisodeData.title || `Follow-up Branch of ${parent?.title || 'Episode'}`,
+      hospital: newEpisodeData.hospital || parent?.hospital || 'Clinical Trauma Center',
+      doctor: newEpisodeData.doctor || parent?.doctor || 'Attending Physician',
+      department: newEpisodeData.department || parent?.department || 'Specialty Care',
+      reason: newEpisodeData.reason || `Longitudinal follow-up / extension for ${parent?.title}`,
+      patientDescription: newEpisodeData.patientDescription || `Progress milestone following ${parent?.id}`,
+      diagnosis: newEpisodeData.diagnosis || parent?.diagnosis || 'Longitudinal condition monitoring',
+      treatment: newEpisodeData.treatment || 'Continued care protocol',
+      status: 'ACTIVE',
+      severity: newEpisodeData.severity || parent?.severity || 'MODERATE',
+      scale: 'MAJOR_LONG_TERM',
+      isChronic: true,
+      stageOrCycle: newEpisodeData.stageOrCycle || 'Follow-up Milestone',
+      documentsCount: files ? files.length : 0,
+      medicinesCount: 0,
+      doctorSuggestionsCount: 0,
+      milestones: [
+        {
+          id: `MLS-${Date.now()}`,
+          title: newEpisodeData.stageOrCycle || 'Branch Initiation',
+          date,
+          type: 'FOLLOW_UP',
+          notes: newEpisodeData.reason || 'Milestone logged',
+          doctorName: newEpisodeData.doctor || parent?.doctor,
+          hospitalName: newEpisodeData.hospital || parent?.hospital,
+          status: 'IN_PROGRESS'
+        }
+      ]
+    };
+
+    setIncidents(prev => [
+      newBranchedIncident,
+      ...prev.map(inc => inc.id === parentIncidentId ? { ...inc, branchesCount: (inc.branchesCount || 0) + 1, isChronic: true } : inc)
+    ]);
+
+    if (files && files.length > 0) {
+      await uploadMultipleDocuments(files, newId);
+    }
+
+    showToast(`Extended ${parentIncidentId} with new milestone episode ${newId} ✓`, 'success');
+    return newId;
+  };
+
+  const addIncidentMilestone = (incidentId: string, milestoneData: Omit<IncidentMilestone, 'id'>) => {
+    const newMilestone: IncidentMilestone = {
+      id: `MLS-${Date.now()}`,
+      ...milestoneData
+    };
+
+    setIncidents(prev =>
+      prev.map(inc =>
+        inc.id === incidentId
+          ? {
+              ...inc,
+              isChronic: true,
+              milestones: [...(inc.milestones || []), newMilestone]
+            }
+          : inc
+      )
+    );
+
+    showToast(`Milestone "${milestoneData.title}" recorded for ${incidentId} ✓`, 'success');
+  };
+
+  const createScheme = (schemeData: Partial<HealthcareScheme>) => {
+    const newScheme: HealthcareScheme = {
+      id: `SCHEME-${Date.now()}`,
+      name: schemeData.name || 'National Healthcare Welfare Scheme',
+      shortCode: schemeData.shortCode || 'NHWS-2026',
+      ministry: schemeData.ministry || 'Ministry of Health and Family Welfare (MoHFW)',
+      coverageAmount: schemeData.coverageAmount || '₹5,00,000 / Year',
+      description: schemeData.description || 'Comprehensive financial coverage for eligible citizens.',
+      eligibilityStatus: 'LIKELY_ELIGIBLE',
+      matchScore: 95,
+      eligibilityCriteria: schemeData.eligibilityCriteria || ['Indian Citizen', 'Valid ABHA ID', 'Diagnosed Chronic Condition'],
+      requiredDocuments: schemeData.requiredDocuments || ['Aadhaar Card', 'ABHA Health ID', 'Verified Hospital Prescription'],
+      benefits: schemeData.benefits || ['100% Cashless Inpatient Hospitalization', 'Pre & Post Hospitalization Medicines'],
+      applicationDeadline: schemeData.applicationDeadline || 'Rolling All-Year',
+      createdById: currentUser?.id,
+      createdByRole: activeRole,
+      applicableConditions: schemeData.applicableConditions || ['All']
+    };
+
+    setSchemes(prev => [newScheme, ...prev]);
+    showToast(`Government Scheme "${newScheme.name}" published successfully ✓`, 'success');
+  };
+
+  const verifyPoliceAccess = (token: string, officerDetails: { officerName: string; badgeNumber: string; stationName: string; firNumber?: string; purpose: string }) => {
+    const newLog: AccessLog = {
+      id: `LOG-POLICE-${Date.now()}`,
+      grantId: token || 'EMERGENCY-TRIAGE',
+      recipientName: `${officerDetails.officerName} (${officerDetails.stationName}, Badge: ${officerDetails.badgeNumber})`,
+      recipientRole: 'POLICE_OFFICER (Statutory / Medico-Legal Duty)',
+      purpose: officerDetails.purpose || `Medico-Legal Investigation (FIR/GD: ${officerDetails.firNumber || 'N/A'})`,
+      recordsAccessed: ['Emergency Triage', 'Blood Group: ' + patient.bloodGroup, 'Organ Donor Status', 'Injury & Trauma Registry'],
+      timestamp: new Date().toLocaleString('en-GB'),
+      ipAddress: '10.244.18.91 (State Police Gateway)',
+      location: `${officerDetails.stationName}, Rajasthan`
+    };
+
+    setAccessLogs(prev => [newLog, ...prev]);
+    showToast(`Police Medico-Legal clearance authenticated for ${officerDetails.officerName}. Audit log recorded.`, 'success');
+
+    return {
+      patient,
+      incidents,
+      triage: {
+        bloodGroup: patient.bloodGroup,
+        emergencyContact: patient.emergencyContact,
+        organDonor: patient.organDonorStatus || 'Registered Donor (Organs & Tissues)',
+        allergies: patient.allergies,
+        activeTraumaEpisodes: incidents.filter(i => i.status === 'ACTIVE' || i.severity === 'CRITICAL' || i.severity === 'MODERATE')
+      }
+    };
   };
 
   const uploadMultipleDocuments = async (files: File[], incidentId: string): Promise<MedicalDocument[]> => {
@@ -1022,7 +1163,12 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
         createPatientDonationCampaign,
         verifyPatientCampaign,
         processDonationPayment,
-        submitDeceasedCaseStudy
+        submitDeceasedCaseStudy,
+
+        branchIncident,
+        addIncidentMilestone,
+        createScheme,
+        verifyPoliceAccess
       }}
     >
       {children}

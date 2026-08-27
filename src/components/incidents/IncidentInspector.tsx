@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { usePatient } from '../../context/PatientContext';
 import { Badge } from '../common/Badge';
 import { GlassPanel } from '../common/GlassPanel';
+import { Modal } from '../common/Modal';
+import { MilestoneType } from '../../types';
 import { 
   X, 
   Building2, 
@@ -14,13 +16,20 @@ import {
   Sparkles, 
   ChevronRight, 
   Upload, 
-  Clock,
-  AlertTriangle,
-  CheckCircle2,
-  Plus,
-  RefreshCw
+  Clock, 
+  AlertTriangle, 
+  CheckCircle2, 
+  Plus, 
+  RefreshCw, 
+  GitBranch, 
+  GitFork, 
+  Check, 
+  CircleDot, 
+  Activity,
+  Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { clsx } from 'clsx';
 
 interface IncidentInspectorProps {
   incidentId: string | null;
@@ -36,13 +45,31 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
     accessLogs,
     activeRole,
     addDoctorSuggestion,
+    addIncidentMilestone,
+    branchIncident,
     closeIncident,
-    reopenIncident
+    reopenIncident,
+    setSelectedIncidentId
   } = usePatient();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'medicines' | 'suggestions' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'progression' | 'documents' | 'medicines' | 'suggestions' | 'audit'>('overview');
   const [newSuggestionText, setNewSuggestionText] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
+
+  // Milestone Creation State
+  const [isAddingMilestone, setIsAddingMilestone] = useState(false);
+  const [milestoneTitle, setMilestoneTitle] = useState('');
+  const [milestoneType, setMilestoneType] = useState<MilestoneType>('CHEMO_CYCLE');
+  const [milestoneNotes, setMilestoneNotes] = useState('');
+  const [milestoneStatus, setMilestoneStatus] = useState<'COMPLETED' | 'IN_PROGRESS' | 'SCHEDULED'>('SCHEDULED');
+
+  // Branch Creation State
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [branchTitle, setBranchTitle] = useState('');
+  const [branchStage, setBranchStage] = useState('');
+  const [branchReason, setBranchReason] = useState('');
+  const [branchDoctor, setBranchDoctor] = useState('');
+  const [branchHospital, setBranchHospital] = useState('');
 
   if (!incidentId) return null;
 
@@ -50,6 +77,10 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
   if (!incident) return null;
 
   const isActive = incident.status === 'ACTIVE';
+
+  // Find parent and child branches
+  const parentIncident = incident.parentIncidentId ? incidents.find(i => i.id === incident.parentIncidentId) : null;
+  const childBranches = incidents.filter(i => i.parentIncidentId === incident.id);
 
   const incidentDocs = documents.filter(d => d.incidentId === incident.id);
   const incidentMeds = medicines.filter(m => m.incidentId === incident.id);
@@ -70,8 +101,8 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
 
     addDoctorSuggestion({
       incidentId: incident.id,
-      doctorName: activeRole === 'DOCTOR' ? 'Dr. Priya Sen, MD' : 'Consulting Physician',
-      specialty: 'Clinical Care Unit',
+      doctorName: activeRole === 'DOCTOR' ? 'Dr. Ram, MS Ortho' : 'Consulting Specialist',
+      specialty: incident.department || 'Clinical Care Unit',
       hospital: incident.hospital,
       date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
       suggestion: newSuggestionText,
@@ -81,6 +112,46 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
 
     setNewSuggestionText('');
     setFollowUpDate('');
+  };
+
+  const handleCreateMilestone = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!milestoneTitle.trim()) return;
+
+    addIncidentMilestone(incident.id, {
+      title: milestoneTitle,
+      date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      type: milestoneType,
+      notes: milestoneNotes,
+      status: milestoneStatus,
+      doctorName: incident.doctor,
+      hospitalName: incident.hospital
+    });
+
+    setIsAddingMilestone(false);
+    setMilestoneTitle('');
+    setMilestoneNotes('');
+  };
+
+  const handleCreateBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!branchTitle.trim()) return;
+
+    await branchIncident(incident.id, {
+      title: branchTitle,
+      stageOrCycle: branchStage || 'Sub-Episode Phase',
+      reason: branchReason || `Extended progression from ${incident.title}`,
+      doctor: branchDoctor || incident.doctor,
+      hospital: branchHospital || incident.hospital,
+      department: incident.department,
+      diagnosis: incident.diagnosis,
+      severity: incident.severity
+    });
+
+    setIsBranchModalOpen(false);
+    setBranchTitle('');
+    setBranchStage('');
+    setBranchReason('');
   };
 
   return (
@@ -111,10 +182,19 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                 <span className="font-mono font-bold text-sm px-2.5 py-1 rounded-md bg-brand-teal/20 text-brand-cyan border border-brand-teal/40">
                   {incident.id}
                 </span>
-                <span className={`text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full border ${isActive ? 'bg-brand-emerald/20 text-brand-emerald border-brand-emerald/40' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                <span className={clsx(
+                  "text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full border",
+                  isActive ? 'bg-brand-emerald/20 text-brand-emerald border-brand-emerald/40' : 'bg-slate-800 text-slate-400 border-slate-700'
+                )}>
                   {isActive ? '● ACTIVE' : '✓ CURED & CLOSED'}
                 </span>
                 <Badge severity={incident.severity} />
+                {incident.parentIncidentId && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/40 flex items-center gap-1">
+                    <GitBranch className="w-3 h-3" />
+                    <span>Branch of {incident.parentIncidentId}</span>
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -124,7 +204,7 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${isActive ? 'bg-brand-emerald text-slate-950 hover:brightness-110 shadow-glow-emerald' : 'bg-white/10 text-white hover:bg-white/20'}`}
                 >
                   {isActive ? <CheckCircle2 className="w-3.5 h-3.5" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  <span>{isActive ? 'Mark Incident as Cured & Closed ✓' : 'Reopen Episode'}</span>
+                  <span>{isActive ? 'Mark as Cured & Closed' : 'Reopen Episode'}</span>
                 </button>
 
                 <button
@@ -139,6 +219,13 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
             <h2 className="text-xl font-extrabold text-white tracking-tight leading-snug">
               {incident.title}
             </h2>
+
+            {incident.stageOrCycle && (
+              <div className="text-xs font-mono text-brand-cyan font-semibold mt-1 flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5" />
+                <span>Current Stage: {incident.stageOrCycle}</span>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-300">
               <span className="flex items-center gap-1">
@@ -159,22 +246,24 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
             <div className="flex items-center gap-2 mt-5 border-b border-white/[0.06] overflow-x-auto pb-1 text-xs">
               {[
                 { id: 'overview', label: 'Clinical Overview', icon: Sparkles },
+                { id: 'progression', label: `Progression & Branches (${(incident.milestones?.length || 0) + childBranches.length})`, icon: GitBranch, highlight: true },
                 { id: 'documents', label: `Documents (${incidentDocs.length})`, icon: FileText },
                 { id: 'medicines', label: `Medicines (${incidentMeds.length})`, icon: Pill },
                 { id: 'suggestions', label: `Doctor Advice (${incidentSuggestions.length})`, icon: MessageSquare },
                 { id: 'audit', label: 'Audit Trail', icon: ShieldCheck }
               ].map(tab => {
                 const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
+                const isTabActive = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg font-semibold transition-all whitespace-nowrap border-b-2 ${
-                      isActive
+                    className={clsx(
+                      "flex items-center gap-1.5 px-3 py-2 rounded-t-lg font-semibold transition-all whitespace-nowrap border-b-2",
+                      isTabActive
                         ? 'text-brand-cyan border-brand-cyan bg-white/[0.04]'
                         : 'text-slate-400 border-transparent hover:text-slate-200'
-                    }`}
+                    )}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     <span>{tab.label}</span>
@@ -190,7 +279,22 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
             {/* TAB 1: CLINICAL OVERVIEW */}
             {activeTab === 'overview' && (
               <div className="space-y-6 animate-fadeIn">
-                {/* Patient-Provided Description */}
+                {/* Parent Link if Branched */}
+                {parentIncident && (
+                  <div 
+                    onClick={() => setSelectedIncidentId(parentIncident.id)}
+                    className="p-3.5 rounded-xl bg-brand-cyan/10 border border-brand-cyan/30 text-xs flex items-center justify-between cursor-pointer hover:bg-brand-cyan/15 transition-all"
+                  >
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="w-4 h-4 text-brand-cyan" />
+                      <span className="text-slate-300">Branched from Primary Incident:</span>
+                      <strong className="text-white">{parentIncident.title}</strong>
+                    </div>
+                    <span className="text-brand-cyan font-bold font-mono">View Parent →</span>
+                  </div>
+                )}
+
+                {/* Patient-Provided Narrative */}
                 <GlassPanel variant="base" className="p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
@@ -222,51 +326,181 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                     </p>
                   </div>
                 </GlassPanel>
+              </div>
+            )}
 
-                {/* Key AI Extracted Summary Pane */}
-                {incidentDocs[0]?.extractedData && (
-                  <GlassPanel variant="glow-teal" className="p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-bold text-brand-cyan uppercase tracking-wider flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>AI Extracted Key Findings</span>
-                      </span>
-                      <span className="text-[11px] text-brand-cyan font-mono">
-                        {Math.round(incidentDocs[0].extractedData.confidenceScore * 100)}% Confidence
-                      </span>
+            {/* TAB 2: PROGRESSION & BRANCHES (Longitudinal Episodes like Cancer / Rehab) */}
+            {activeTab === 'progression' && (
+              <div className="space-y-6 animate-fadeIn">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#131824] border border-white/10">
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-brand-cyan" />
+                      <span>Longitudinal Milestones & Branching Trajectory</span>
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      For chronic conditions like Cancer or Rehab that extend across multiple cycles, phases, and follow-ups.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsAddingMilestone(true)}
+                      className="px-3 py-1.5 rounded-xl bg-brand-cyan text-slate-950 font-bold text-xs shadow-glow-cyan hover:brightness-110 flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Milestone</span>
+                    </button>
+                    <button
+                      onClick={() => setIsBranchModalOpen(true)}
+                      className="px-3 py-1.5 rounded-xl bg-brand-emerald/20 hover:bg-brand-emerald/30 border border-brand-emerald/40 text-brand-emerald font-bold text-xs flex items-center gap-1"
+                    >
+                      <GitFork className="w-3.5 h-3.5" />
+                      <span>Branch Sub-Episode</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Form to Add Milestone Inline */}
+                {isAddingMilestone && (
+                  <form onSubmit={handleCreateMilestone} className="p-4 rounded-2xl bg-black/60 border border-brand-cyan/40 space-y-3 animate-fadeIn text-xs">
+                    <div className="font-bold text-white flex items-center justify-between">
+                      <span>Add Clinical Milestone / Cycle</span>
+                      <button type="button" onClick={() => setIsAddingMilestone(false)} className="text-slate-400 hover:text-white">✕</button>
                     </div>
 
-                    {incidentDocs[0].extractedData.labValues && (
-                      <div className="space-y-1.5 mt-2">
-                        {incidentDocs[0].extractedData.labValues.map((lv, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-black/40 text-xs">
-                            <span className="text-slate-300">{lv.test}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-white">{lv.result} {lv.unit}</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                                lv.status === 'HIGH' || lv.status === 'LOW' 
-                                  ? 'bg-brand-amber/20 text-brand-amber' 
-                                  : 'bg-brand-emerald/20 text-brand-emerald'
-                              }`}>
-                                {lv.status}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-400 font-mono mb-1">Milestone Title *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Cycle 2 AC Chemotherapy, Follow-up PET-CT"
+                          value={milestoneTitle}
+                          onChange={(e) => setMilestoneTitle(e.target.value)}
+                          className="w-full bg-[#131824] border border-white/10 rounded-xl p-2 text-white"
+                        />
                       </div>
-                    )}
+                      <div>
+                        <label className="block text-slate-400 font-mono mb-1">Type</label>
+                        <select
+                          value={milestoneType}
+                          onChange={(e) => setMilestoneType(e.target.value as any)}
+                          className="w-full bg-[#131824] border border-white/10 rounded-xl p-2 text-white"
+                        >
+                          <option value="CHEMO_CYCLE">Chemotherapy Cycle</option>
+                          <option value="RADIATION">Radiation Therapy</option>
+                          <option value="SURGERY">Surgical Milestone</option>
+                          <option value="REMISSION_CHECK">Remission / Diagnostic Scan</option>
+                          <option value="REHABILITATION">Rehabilitation / Physiotherapy</option>
+                          <option value="FOLLOW_UP">Outpatient Follow-up</option>
+                        </select>
+                      </div>
+                    </div>
 
-                    {incidentDocs[0].extractedData.keyAdvice && (
-                      <p className="text-xs text-slate-300 bg-white/[0.03] p-2.5 rounded-lg border border-white/5">
-                        <strong>Clinical Directive:</strong> {incidentDocs[0].extractedData.keyAdvice}
-                      </p>
-                    )}
-                  </GlassPanel>
+                    <div>
+                      <label className="block text-slate-400 font-mono mb-1">Clinical Notes</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Full dose administered; blood counts stable; repeat review in 14 days"
+                        value={milestoneNotes}
+                        onChange={(e) => setMilestoneNotes(e.target.value)}
+                        className="w-full bg-[#131824] border border-white/10 rounded-xl p-2 text-white"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingMilestone(false)}
+                        className="px-3 py-1.5 rounded-lg bg-white/5 text-slate-400 text-xs"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 rounded-lg bg-brand-cyan text-slate-950 font-bold text-xs"
+                      >
+                        Record Milestone
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Milestone Progression Timeline */}
+                <div className="space-y-3">
+                  <span className="text-xs font-mono font-bold uppercase text-slate-400">
+                    Clinical Milestones & Protocol History ({incident.milestones?.length || 0})
+                  </span>
+
+                  {(incident.milestones || []).map((ms, idx) => (
+                    <div key={ms.id || idx} className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex items-start gap-3.5 text-xs relative">
+                      <div className={clsx(
+                        "w-8 h-8 rounded-full flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5",
+                        ms.status === 'COMPLETED' ? "bg-brand-emerald/20 text-brand-emerald border border-brand-emerald/40" :
+                        ms.status === 'IN_PROGRESS' ? "bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/40 animate-pulse" :
+                        "bg-slate-800 text-slate-400 border border-slate-700"
+                      )}>
+                        {ms.status === 'COMPLETED' ? <Check className="w-4 h-4" /> : idx + 1}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-bold text-white text-sm">{ms.title}</h5>
+                          <span className="text-[10px] font-mono text-slate-500">{ms.date}</span>
+                        </div>
+                        <p className="text-slate-300 text-xs mt-1">{ms.notes}</p>
+                        <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-500 font-mono">
+                          <span>Type: {ms.type}</span>
+                          <span>•</span>
+                          <span className={clsx(
+                            "font-bold",
+                            ms.status === 'COMPLETED' ? "text-brand-emerald" : ms.status === 'IN_PROGRESS' ? "text-brand-cyan" : "text-brand-amber"
+                          )}>
+                            Status: {ms.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {(!incident.milestones || incident.milestones.length === 0) && (
+                    <div className="p-6 text-center rounded-xl bg-white/[0.02] border border-white/5 text-slate-400 text-xs">
+                      No milestones logged yet. Click "Add Milestone" above to track cycles or rehabilitation stages.
+                    </div>
+                  )}
+                </div>
+
+                {/* Child Branched Episodes */}
+                {childBranches.length > 0 && (
+                  <div className="space-y-3 pt-4 border-t border-white/10">
+                    <span className="text-xs font-mono font-bold uppercase text-brand-emerald">
+                      Connected Sub-Episodes & Branches ({childBranches.length})
+                    </span>
+
+                    {childBranches.map(branch => (
+                      <div
+                        key={branch.id}
+                        onClick={() => setSelectedIncidentId(branch.id)}
+                        className="p-4 rounded-xl bg-black/40 border border-brand-emerald/30 hover:border-brand-emerald transition-all cursor-pointer space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-bold text-brand-emerald flex items-center gap-1.5">
+                            <GitBranch className="w-3.5 h-3.5" />
+                            <span>{branch.id} • {branch.stageOrCycle || 'Sub-Episode'}</span>
+                          </span>
+                          <span className="text-brand-cyan text-xs font-bold font-mono">Inspect Branch →</span>
+                        </div>
+                        <h5 className="font-bold text-white text-xs">{branch.title}</h5>
+                        <p className="text-slate-300 text-xs">{branch.diagnosis}</p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
 
-            {/* TAB 2: DOCUMENTS */}
+            {/* TAB 3: DOCUMENTS */}
             {activeTab === 'documents' && (
               <div className="space-y-4 animate-fadeIn">
                 <div className="flex items-center justify-between">
@@ -290,32 +524,14 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                         <p className="text-[11px] text-slate-400 font-mono mt-0.5">
                           {doc.filename} • {doc.fileSize} • Uploaded {doc.uploadDate}
                         </p>
-                        {doc.extractedData?.diagnosis && (
-                          <p className="text-xs text-slate-300 mt-2 bg-white/[0.02] p-2 rounded border border-white/5">
-                            Extracted Diagnosis: {doc.extractedData.diagnosis}
-                          </p>
-                        )}
                       </div>
                     </div>
-
-                    <button 
-                      onClick={() => alert(`Document Preview: ${doc.title}`)}
-                      className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-brand-cyan border border-white/10"
-                    >
-                      Inspect
-                    </button>
                   </GlassPanel>
                 ))}
-
-                {incidentDocs.length === 0 && (
-                  <div className="p-8 text-center rounded-2xl bg-white/[0.02] border border-white/10 text-slate-400 text-xs">
-                    No documents attached yet to this episode.
-                  </div>
-                )}
               </div>
             )}
 
-            {/* TAB 3: MEDICINES */}
+            {/* TAB 4: MEDICINES */}
             {activeTab === 'medicines' && (
               <div className="space-y-4 animate-fadeIn">
                 <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
@@ -331,36 +547,20 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                       </div>
                       <Badge source={med.source} />
                     </div>
-
                     <div className="text-xs text-slate-400 bg-black/40 p-2.5 rounded-xl border border-white/5">
-                      <div className="font-semibold text-slate-300 mb-0.5">Clinical Instructions:</div>
                       {med.instructions}
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-2 border-t border-white/5">
-                      <span>Schedule: {med.timing.join(', ')}</span>
-                      <span>Duration: {med.duration}</span>
                     </div>
                   </GlassPanel>
                 ))}
-
-                {incidentMeds.length === 0 && (
-                  <div className="p-8 text-center rounded-2xl bg-white/[0.02] border border-white/10 text-slate-400 text-xs">
-                    No specific medications linked with this episode.
-                  </div>
-                )}
               </div>
             )}
 
-            {/* TAB 4: DOCTOR SUGGESTIONS */}
+            {/* TAB 5: DOCTOR SUGGESTIONS */}
             {activeTab === 'suggestions' && (
               <div className="space-y-4 animate-fadeIn">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
-                    Recorded Doctor Directives
-                  </h4>
-                  <Badge source="DOCTOR_RECORDED" />
-                </div>
+                <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
+                  Recorded Doctor Directives
+                </h4>
 
                 {incidentSuggestions.map(sug => (
                   <GlassPanel key={sug.id} variant="glow-emerald" className="p-4 space-y-2">
@@ -369,15 +569,12 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                     </p>
                     <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium pt-2 border-t border-white/10">
                       <span>{sug.doctorName} ({sug.specialty})</span>
-                      {sug.followUpDate && (
-                        <span className="font-mono text-brand-amber">Next Review: {sug.followUpDate}</span>
-                      )}
+                      {sug.followUpDate && <span className="font-mono text-brand-amber">Next Review: {sug.followUpDate}</span>}
                     </div>
                   </GlassPanel>
                 ))}
 
-                {/* Doctor Role can add suggestions */}
-                <form onSubmit={handleAddSuggestion} className="p-4 rounded-2xl bg-[#131824] border border-white/10 space-y-3">
+                <form onSubmit={handleAddSuggestion} className="p-4 rounded-2xl bg-[#131824] border border-white/10 space-y-3 text-xs">
                   <div className="text-xs font-bold text-white flex items-center gap-1.5">
                     <Plus className="w-3.5 h-3.5 text-brand-emerald" />
                     <span>Append Attending Doctor Recommendation</span>
@@ -389,26 +586,17 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                     onChange={(e) => setNewSuggestionText(e.target.value)}
                     className="w-full bg-[#0d111a] border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-brand-emerald/50"
                   />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Follow-up Date (e.g. 10 Sep 2026)"
-                      value={followUpDate}
-                      onChange={(e) => setFollowUpDate(e.target.value)}
-                      className="flex-1 bg-[#0d111a] border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      className="px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs hover:brightness-110"
-                    >
-                      Record Directive
-                    </button>
-                  </div>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs hover:brightness-110"
+                  >
+                    Record Directive
+                  </button>
                 </form>
               </div>
             )}
 
-            {/* TAB 5: AUDIT TRAIL */}
+            {/* TAB 6: AUDIT TRAIL */}
             {activeTab === 'audit' && (
               <div className="space-y-4 animate-fadeIn">
                 <div className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
@@ -422,12 +610,7 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
                         <span className="font-bold text-white">{log.recipientName}</span>
                         <span className="text-slate-500 font-mono text-[11px]">{log.timestamp}</span>
                       </div>
-                      <div className="text-slate-400 text-[11px]">
-                        Purpose: <span className="text-slate-300 font-medium">{log.purpose}</span>
-                      </div>
-                      <div className="text-slate-500 font-mono text-[10px]">
-                        IP: {log.ipAddress} • {log.location}
-                      </div>
+                      <div className="text-slate-400 text-[11px]">Purpose: {log.purpose}</div>
                     </div>
                   ))}
                 </div>
@@ -435,6 +618,80 @@ export const IncidentInspector: React.FC<IncidentInspectorProps> = ({ incidentId
             )}
           </div>
         </motion.div>
+
+        {/* BRANCH CREATION MODAL */}
+        <Modal
+          isOpen={isBranchModalOpen}
+          onClose={() => setIsBranchModalOpen(false)}
+          title={`Branch / Extend Incident ${incident.id}`}
+          subtitle={`Create a longitudinal sub-episode (e.g. Chemotherapy Cycle, Radiation, Post-Op Rehab)`}
+          maxWidth="lg"
+        >
+          <form onSubmit={handleCreateBranch} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-slate-400 font-mono mb-1">Branch Sub-Episode Title *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Cycle 2 Chemotherapy Protocol, Post-Cast Physical Therapy"
+                value={branchTitle}
+                onChange={(e) => setBranchTitle(e.target.value)}
+                className="w-full bg-[#131824] border border-white/10 rounded-xl p-2.5 text-white"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-400 font-mono mb-1">Stage / Phase Label</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Stage II - Cycle 2"
+                  value={branchStage}
+                  onChange={(e) => setBranchStage(e.target.value)}
+                  className="w-full bg-[#131824] border border-white/10 rounded-xl p-2.5 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 font-mono mb-1">Attending Clinician</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Dr. Ram, MS Ortho"
+                  value={branchDoctor}
+                  onChange={(e) => setBranchDoctor(e.target.value)}
+                  className="w-full bg-[#131824] border border-white/10 rounded-xl p-2.5 text-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 font-mono mb-1">Branch Clinical Objective</label>
+              <textarea
+                rows={2}
+                placeholder="Describe why this episode is being branched and its treatment goals..."
+                value={branchReason}
+                onChange={(e) => setBranchReason(e.target.value)}
+                className="w-full bg-[#131824] border border-white/10 rounded-xl p-2.5 text-white"
+              />
+            </div>
+
+            <div className="pt-3 flex justify-end gap-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setIsBranchModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-white/5 text-slate-400 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs shadow-glow-emerald hover:brightness-110"
+              >
+                Create Connected Sub-Episode
+              </button>
+            </div>
+          </form>
+        </Modal>
+
       </div>
     </AnimatePresence>
   );

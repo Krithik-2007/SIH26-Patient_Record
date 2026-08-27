@@ -1,4 +1,4 @@
-export type UserRole = 'PATIENT' | 'DOCTOR' | 'GOVERNMENT_OFFICIAL' | 'RESEARCHER';
+export type UserRole = 'PATIENT' | 'DOCTOR' | 'GOVERNMENT_OFFICIAL' | 'RESEARCHER' | 'POLICE_OFFICER';
 
 export interface UserAccount {
   id: string;
@@ -19,6 +19,8 @@ export interface UserAccount {
   officialId?: string;
   department?: string;
   institutionId?: string;
+  badgeNumber?: string;
+  policeStation?: string;
 }
 
 export interface PatientProfile {
@@ -44,6 +46,27 @@ export type IncidentStatus = 'ACTIVE' | 'CLOSED';
 export type IncidentSeverity = 'MILD' | 'MODERATE' | 'CRITICAL' | 'ROUTINE';
 export type IncidentScale = 'ACUTE_TEMPORARY' | 'MAJOR_LONG_TERM';
 
+export type MilestoneType = 
+  | 'DIAGNOSIS' 
+  | 'SURGERY' 
+  | 'CHEMO_CYCLE' 
+  | 'RADIATION' 
+  | 'MEDICATION_CHANGE' 
+  | 'REMISSION_CHECK' 
+  | 'REHABILITATION' 
+  | 'FOLLOW_UP';
+
+export interface IncidentMilestone {
+  id: string;
+  title: string;
+  date: string;
+  type: MilestoneType;
+  notes: string;
+  doctorName?: string;
+  hospitalName?: string;
+  status: 'COMPLETED' | 'IN_PROGRESS' | 'SCHEDULED';
+}
+
 export interface Incident {
   id: string; // INC-001, INC-002, etc.
   patientId: string;
@@ -66,6 +89,13 @@ export interface Incident {
   documentsCount: number;
   medicinesCount: number;
   doctorSuggestionsCount: number;
+  
+  // Longitudinal Staging & Branching (e.g. Cancer, Chronic Illness, Rehab)
+  parentIncidentId?: string;
+  isChronic?: boolean;
+  stageOrCycle?: string;
+  milestones?: IncidentMilestone[];
+  branchesCount?: number;
 }
 
 export type DocumentType = 
@@ -75,9 +105,10 @@ export type DocumentType =
   | 'DISCHARGE_SUMMARY' 
   | 'HOSPITAL_BILL' 
   | 'CLINICAL_PHOTO'
-  | 'VACCINATION_CERTIFICATE';
+  | 'VACCINATION_CERTIFICATE'
+  | 'MEDICO_LEGAL_REPORT';
 
-export type DataSourceTag = 'PATIENT_PROVIDED' | 'DOCTOR_RECORDED' | 'AI_EXTRACTED' | 'PRESCRIPTION';
+export type DataSourceTag = 'PATIENT_PROVIDED' | 'DOCTOR_RECORDED' | 'AI_EXTRACTED' | 'PRESCRIPTION' | 'POLICE_VERIFIED';
 
 export interface ExtractedLabValue {
   test: string;
@@ -173,7 +204,7 @@ export interface AccessGrant {
   id: string;
   patientId: string;
   recipientName: string;
-  recipientRole: 'DOCTOR' | 'HOSPITAL' | 'OFFICIAL' | 'EMERGENCY';
+  recipientRole: 'DOCTOR' | 'HOSPITAL' | 'OFFICIAL' | 'EMERGENCY' | 'POLICE';
   purpose: string;
   scope: AccessScope;
   createdAt: string;
@@ -211,6 +242,24 @@ export interface HealthcareScheme {
   activeEnrollment?: boolean;
   enrollmentId?: string;
   applicationDeadline?: string;
+  
+  // Scheme Creation Metadata
+  createdById?: string;
+  createdByRole?: UserRole;
+  applicableConditions?: string[];
+  minAge?: number;
+  maxAge?: number;
+  incomeCeiling?: number;
+}
+
+export interface PoliceAccessVerification {
+  officerName: string;
+  badgeNumber: string;
+  stationName: string;
+  firNumber?: string;
+  purpose: 'EMERGENCY_ACCIDENT_TRIAGE' | 'MEDICO_LEGAL_CASE' | 'IDENTITY_VERIFICATION' | 'UNCONSCIOUS_VICTIM_IDENTIFICATION';
+  timestamp: string;
+  patientToken: string;
 }
 
 export type DonationCampaignCategory = 
