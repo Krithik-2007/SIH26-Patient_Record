@@ -353,3 +353,54 @@ export interface AIMessage {
   confidence?: 'HIGH' | 'PRELIMINARY';
   mode?: AIMode;
 }
+
+export interface DailyDietPlan {
+  day: 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+  breakfast: string;
+  midMorning: string;
+  lunch: string;
+  eveningSnack: string;
+  dinner: string;
+  bedtime?: string;
+  nutritionalFocus: string;
+  hydrationTarget: string;
+}
+
+export interface WeeklyDietTimetable {
+  title: string;
+  conditionGrounded: string;
+  mode: AIMode;
+  caloriesTarget: string;
+  calciumAndMineralTarget: string;
+  strictlyAvoid: string[];
+  days: DailyDietPlan[];
+  doctorVerifiedNotes: string;
+}
+
+export interface DailyExercisePlan {
+  day: 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+  routineName: string;
+  durationMinutes: number;
+  safetyIntensity: 'GENTLE_REHAB' | 'LOW_IMPACT' | 'MODERATE_REST';
+  morningSession: {
+    title: string;
+    exercises: { name: string; repsOrDuration: string; safetyNote: string }[];
+  };
+  eveningSession: {
+    title: string;
+    exercises: { name: string; repsOrDuration: string; safetyNote: string }[];
+  };
+  prohibitedMovements: string[];
+  clinicalRationale: string;
+}
+
+export interface WeeklyExerciseTimetable {
+  title: string;
+  conditionGrounded: string;
+  mode: AIMode;
+  weeklyTarget: string;
+  safetyPrecautions: string[];
+  prohibitedMovements: string[];
+  days: DailyExercisePlan[];
+}
+
