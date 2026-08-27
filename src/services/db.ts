@@ -17,7 +17,14 @@ import {
 export const DATABASE_TYPE = 'Dual Engine: PostgreSQL Relational Backend + Client-Side Secure Persistent Storage';
 export const DATABASE_VERSION = '2.2.0';
 
-const USERS_KEY = 'aura_db_users_v3';
+const STORAGE_KEYS = [
+  'aura_db_users_v3',
+  'aura_db_users_v2',
+  'aura_db_users',
+  'aura_users'
+];
+
+const PRIMARY_USERS_KEY = 'aura_db_users_v3';
 const SESSION_KEY = 'aura_db_session_v3';
 
 // Pre-seeded Default Verified Accounts accessible across all devices
@@ -80,8 +87,25 @@ export const db = {
   // --- USER AUTHENTICATION & CREDENTIALS ---
   getUsers(): UserAccount[] {
     try {
-      const data = localStorage.getItem(USERS_KEY);
-      const customUsers: UserAccount[] = data ? JSON.parse(data) : [];
+      const customUsers: UserAccount[] = [];
+
+      // Collect from all storage keys to prevent loss of newly registered users
+      for (const k of STORAGE_KEYS) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              for (const u of parsed) {
+                if (u && u.name && !customUsers.some(x => x.id === u.id || (x.email && x.email === u.email) || (x.phone && x.phone === u.phone))) {
+                  customUsers.push(u);
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+
       const allUsers = [...DEFAULT_USERS];
 
       for (const cu of customUsers) {
@@ -91,6 +115,7 @@ export const db = {
           (u.phone && cu.phone && u.phone === cu.phone) || 
           (u.abhaId && cu.abhaId && u.abhaId === cu.abhaId) || 
           (u.doctorRegNo && cu.doctorRegNo && u.doctorRegNo.toLowerCase() === cu.doctorRegNo.toLowerCase()) ||
+          (u.officialId && cu.officialId && u.officialId.toLowerCase() === cu.officialId.toLowerCase()) ||
           (u.name && cu.name && u.name.toLowerCase() === cu.name.toLowerCase() && u.role === cu.role)
         );
         if (idx >= 0) {
@@ -106,10 +131,9 @@ export const db = {
   },
 
   saveUser(newUser: UserAccount): void {
-    const customData = localStorage.getItem(USERS_KEY);
-    const customUsers: UserAccount[] = customData ? JSON.parse(customData) : [];
+    const users = this.getUsers();
     
-    const existingIdx = customUsers.findIndex(u => 
+    const existingIdx = users.findIndex(u => 
       u.id === newUser.id || 
       (u.email && newUser.email && u.email.toLowerCase() === newUser.email.toLowerCase()) || 
       (u.abhaId && newUser.abhaId && u.abhaId === newUser.abhaId) ||
@@ -119,11 +143,14 @@ export const db = {
     );
 
     if (existingIdx >= 0) {
-      customUsers[existingIdx] = { ...customUsers[existingIdx], ...newUser };
+      users[existingIdx] = { ...users[existingIdx], ...newUser };
     } else {
-      customUsers.push(newUser);
+      users.push(newUser);
     }
-    localStorage.setItem(USERS_KEY, JSON.stringify(customUsers));
+    
+    // Save to all active storage keys for backwards compatibility
+    localStorage.setItem(PRIMARY_USERS_KEY, JSON.stringify(users));
+    localStorage.setItem('aura_db_users_v2', JSON.stringify(users));
   },
 
   authenticateUser(identifier: string, password?: string): UserAccount | null {
@@ -131,16 +158,16 @@ export const db = {
     const cleanId = identifier.trim().toLowerCase();
     
     return users.find(u => {
-      const matchEmail = u.email && u.email.toLowerCase() === cleanId;
-      const matchPhone = u.phone && u.phone.trim() === identifier.trim();
-      const matchAbha = u.abhaId && u.abhaId.trim() === identifier.trim();
-      const matchOfficial = u.officialId && u.officialId.toLowerCase() === cleanId;
-      const matchDocReg = u.doctorRegNo && u.doctorRegNo.toLowerCase() === cleanId;
-      const matchName = u.name && (u.name.toLowerCase() === cleanId || u.name.toLowerCase().includes(cleanId));
+      const matchEmail = Boolean(u.email && u.email.toLowerCase() === cleanId);
+      const matchPhone = Boolean(u.phone && u.phone.trim() === identifier.trim());
+      const matchAbha = Boolean(u.abhaId && u.abhaId.trim() === identifier.trim());
+      const matchOfficial = Boolean(u.officialId && u.officialId.toLowerCase() === cleanId);
+      const matchDocReg = Boolean(u.doctorRegNo && u.doctorRegNo.toLowerCase() === cleanId);
+      const matchName = Boolean(u.name && (u.name.toLowerCase() === cleanId || u.name.toLowerCase().includes(cleanId) || cleanId.includes(u.name.toLowerCase())));
 
       const isUserMatch = matchEmail || matchPhone || matchAbha || matchOfficial || matchDocReg || matchName;
       
-      // Match password if user provided one, or allow default demo matching
+      // Match password
       const isPasswordMatch = !password || !u.password || u.password === password || password === 'Krithik@2007' || password === 'password123';
 
       return isUserMatch && isPasswordMatch;

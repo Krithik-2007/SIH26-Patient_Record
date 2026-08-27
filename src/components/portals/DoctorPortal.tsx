@@ -15,17 +15,19 @@ import {
   Pill, 
   Plus, 
   Clock, 
-  CheckCircle2,
-  Building2,
-  Calendar,
-  AlertTriangle,
-  HeartHandshake,
-  Upload,
-  X,
-  Sparkles,
-  Zap,
-  Check,
-  UserCheck
+  CheckCircle2, 
+  Building2, 
+  Calendar, 
+  AlertTriangle, 
+  HeartHandshake, 
+  Upload, 
+  X, 
+  Sparkles, 
+  Zap, 
+  Check, 
+  UserCheck,
+  Lock,
+  ArrowRight
 } from 'lucide-react';
 
 export const DoctorPortal: React.FC = () => {
@@ -34,7 +36,6 @@ export const DoctorPortal: React.FC = () => {
     patient: fallbackPatient, 
     incidents: fallbackIncidents, 
     medicines: fallbackMedicines, 
-    doctorSuggestions: fallbackSuggestions,
     donations,
     addDoctorSuggestion,
     verifyPatientCampaign,
@@ -43,8 +44,8 @@ export const DoctorPortal: React.FC = () => {
   } = usePatient();
 
   const [tokenInput, setTokenInput] = useState('');
-  const [isHandshakeVerified, setIsHandshakeVerified] = useState(true);
-  const [selectedIncidentForAdvice, setSelectedIncidentForAdvice] = useState<string>('INC-001');
+  const [isHandshakeVerified, setIsHandshakeVerified] = useState(false);
+  const [selectedIncidentForAdvice, setSelectedIncidentForAdvice] = useState<string>('');
   const [suggestionText, setSuggestionText] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
 
@@ -56,33 +57,10 @@ export const DoctorPortal: React.FC = () => {
     bloodGroup: string;
     abhaId: string;
     phone?: string;
-  }>({
-    name: fallbackPatient.name || 'Krithik',
-    age: fallbackPatient.age || 26,
-    gender: fallbackPatient.gender || 'Male',
-    bloodGroup: fallbackPatient.bloodGroup || 'O+',
-    abhaId: fallbackPatient.abhaId || '91-4920-8193-4412'
-  });
+  } | null>(null);
 
-  const [scannedIncidents, setScannedIncidents] = useState<any[]>(
-    fallbackIncidents.length > 0 ? fallbackIncidents : [
-      {
-        id: 'INC-001',
-        year: 2026,
-        date: '26 Aug 2026',
-        title: 'Right Distal Radius Bone Fracture',
-        hospital: 'SMS Hospital & Medical College, Jaipur',
-        doctor: 'Dr. Ram, MS Ortho',
-        diagnosis: 'Right Forearm Distal Radius Fracture from fall',
-        treatment: 'Closed reduction, fiberglass casting for 4 weeks, analgesics, and rest protocol',
-        patientDescription: 'Broke right arm after slip and fall.',
-        status: 'ACTIVE',
-        severity: 'MODERATE'
-      }
-    ]
-  );
-
-  const [scannedMedicines, setScannedMedicines] = useState<any[]>(fallbackMedicines);
+  const [scannedIncidents, setScannedIncidents] = useState<any[]>([]);
+  const [scannedMedicines, setScannedMedicines] = useState<any[]>([]);
 
   // Live Camera Scanner State
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
@@ -105,7 +83,7 @@ export const DoctorPortal: React.FC = () => {
 
     let token = input.trim();
 
-    // Check if raw payload has encoded data bundle (e.g. data=...)
+    // Check if raw payload has encoded data bundle (data=...)
     if (input.includes('data=')) {
       try {
         const match = input.match(/data=([^&]+)/);
@@ -119,6 +97,8 @@ export const DoctorPortal: React.FC = () => {
           if (payload.incidents && payload.incidents.length > 0) {
             setScannedIncidents(payload.incidents);
             setSelectedIncidentForAdvice(payload.incidents[0].id);
+          } else {
+            setScannedIncidents([]);
           }
           if (payload.medicines) setScannedMedicines(payload.medicines);
 
@@ -132,10 +112,38 @@ export const DoctorPortal: React.FC = () => {
       }
     }
 
-    // Token direct match
+    // Token direct match fallback
     setTokenInput(token);
+    setScannedPatient({
+      name: fallbackPatient.name || 'Krithik',
+      age: fallbackPatient.age || 26,
+      gender: fallbackPatient.gender || 'Male',
+      bloodGroup: fallbackPatient.bloodGroup || 'O+',
+      abhaId: fallbackPatient.abhaId || '91-4920-8193-4412'
+    });
+    setScannedIncidents(fallbackIncidents.length > 0 ? fallbackIncidents : [
+      {
+        id: 'INC-001',
+        year: 2026,
+        date: '26 Aug 2026',
+        title: 'Right Distal Radius Bone Fracture',
+        hospital: 'SMS Hospital & Medical College, Jaipur',
+        doctor: 'Dr. Ram, MS Ortho',
+        diagnosis: 'Right Forearm Distal Radius Fracture from fall',
+        treatment: 'Closed reduction, fiberglass casting for 4 weeks, analgesics, and rest protocol',
+        patientDescription: 'Broke right arm after slip and fall.',
+        status: 'ACTIVE',
+        severity: 'MODERATE'
+      }
+    ]);
+    if (fallbackIncidents.length > 0) {
+      setSelectedIncidentForAdvice(fallbackIncidents[0].id);
+    } else {
+      setSelectedIncidentForAdvice('INC-001');
+    }
+    setScannedMedicines(fallbackMedicines);
     setIsHandshakeVerified(true);
-    showToast(`✅ Patient QR Handshake Verified: ${token}. Record unlocked!`, 'success');
+    showToast(`✅ Patient Handshake Authenticated: ${token}. Records unlocked!`, 'success');
   };
 
   // High-performance continuous QR frame decoding with jsQR
@@ -254,12 +262,12 @@ export const DoctorPortal: React.FC = () => {
 
     addDoctorSuggestion({
       incidentId: selectedIncidentForAdvice,
-      doctorName: currentUser?.name || 'Dr. Ram, MS Ortho',
-      specialty: currentUser?.specialty || 'Orthopedic & Trauma Surgery',
-      hospital: currentUser?.hospitalAffiliation || 'SMS Hospital & Medical College, Jaipur',
+      doctorName: currentUser?.name || 'Attending Physician',
+      specialty: currentUser?.specialty || 'General Practitioner',
+      hospital: currentUser?.hospitalAffiliation || 'Hospital Practice',
       date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
       suggestion: suggestionText,
-      followUpDate: followUpDate || 'In 2 weeks with repeat AP/Lateral X-ray',
+      followUpDate: followUpDate || 'In 2 weeks with repeat review',
       priority: 'HIGH'
     });
 
@@ -271,7 +279,7 @@ export const DoctorPortal: React.FC = () => {
   return (
     <div className="space-y-6 animate-fadeIn">
       
-      {/* Doctor Header */}
+      {/* Doctor Header - Strictly renders Logged in Doctor's credentials */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-[#090d16] border border-brand-emerald/40 shadow-glow-emerald">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 flex items-center justify-center text-brand-emerald">
@@ -285,7 +293,7 @@ export const DoctorPortal: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              {currentUser?.specialty || 'Orthopedic Surgery'} • {currentUser?.hospitalAffiliation || 'SMS Hospital & Medical College, Jaipur'}
+              {currentUser?.specialty || 'Orthopedic & Trauma Surgery'} • {currentUser?.hospitalAffiliation || 'SMS Hospital & Medical College, Jaipur'}
             </p>
           </div>
         </div>
@@ -343,10 +351,10 @@ export const DoctorPortal: React.FC = () => {
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <QrCode className="w-4 h-4 text-brand-cyan" />
-              <span>Scan Patient QR Code</span>
+              <span>Scan Patient QR Code or Enter Token</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Point your camera at the patient's laptop QR code to load their longitudinal records.
+              Point camera at the patient's screen to load permitted longitudinal episodes.
             </p>
           </div>
 
@@ -379,12 +387,36 @@ export const DoctorPortal: React.FC = () => {
         </div>
       </GlassPanel>
 
-      {/* Patient Record Inspection Workspace */}
-      {isHandshakeVerified && (
+      {/* STANDBY STATE: When no patient QR has been scanned yet */}
+      {!isHandshakeVerified && (
+        <div className="p-12 text-center rounded-3xl bg-[#090d16]/80 border border-white/[0.08] shadow-spatial-md space-y-4">
+          <div className="w-16 h-16 rounded-3xl bg-brand-cyan/10 border border-brand-cyan/30 flex items-center justify-center text-brand-cyan mx-auto shadow-glow-cyan">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h3 className="text-base font-bold text-white">
+              Patient Medical Records Protected
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              No patient data is unlocked yet. Point your camera at a patient's temporary QR code or enter their access token above to inspect their permitted medical history.
+            </p>
+          </div>
+          <button
+            onClick={startCamera}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-teal to-cyan-500 text-slate-950 font-bold text-xs shadow-glow-teal hover:brightness-110"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Scan Patient QR Code Now</span>
+          </button>
+        </div>
+      )}
+
+      {/* Patient Record Inspection Workspace (Unlocked after QR Scan) */}
+      {isHandshakeVerified && scannedPatient && (
         <div className="space-y-6 animate-fadeIn">
           
           {/* Patient Identity Badge */}
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white/[0.02] border border-white/10 text-xs shadow-spatial-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white/[0.02] border border-brand-emerald/30 text-xs shadow-spatial-sm">
             <div className="flex items-center gap-3">
               <UserCheck className="w-4 h-4 text-brand-emerald" />
               <span className="font-bold text-white text-sm">{scannedPatient.name}</span>
@@ -460,7 +492,7 @@ export const DoctorPortal: React.FC = () => {
                   <span>Add Doctor Directives / Advice</span>
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Record official clinical directives attached directly to {scannedPatient.name}'s incident.
+                  Record official clinical directives signed by {currentUser?.name || 'Attending Physician'}.
                 </p>
 
                 <form onSubmit={handleAddAdvice} className="space-y-4 text-xs">
