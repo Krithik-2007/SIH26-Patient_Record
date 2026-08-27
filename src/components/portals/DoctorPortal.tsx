@@ -27,7 +27,8 @@ import {
   Check, 
   UserCheck,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Sparkle
 } from 'lucide-react';
 
 export const DoctorPortal: React.FC = () => {
@@ -78,12 +79,57 @@ export const DoctorPortal: React.FC = () => {
   // Unpack and Verify Token / Scanned Payload
   const handleVerifyToken = (e?: React.FormEvent, rawScannedText?: string) => {
     if (e) e.preventDefault();
-    const input = rawScannedText || tokenInput;
-    if (!input.trim()) return;
+    const input = (rawScannedText || tokenInput).trim();
+    if (!input) return;
 
-    let token = input.trim();
+    let token = input;
 
-    // Check if raw payload has encoded data bundle (data=...)
+    // 1. Check for AURA: compact JSON format (AURA:{"tok":"...","pat":{...},"inc":[...]})
+    if (input.startsWith('AURA:')) {
+      try {
+        const jsonStr = input.substring(5);
+        const payload = JSON.parse(jsonStr);
+
+        if (payload.tok) token = payload.tok;
+        if (payload.pat) {
+          setScannedPatient({
+            name: payload.pat.n || 'Krithik',
+            age: payload.pat.a || 26,
+            gender: payload.pat.g === 'M' ? 'Male' : payload.pat.g === 'F' ? 'Female' : payload.pat.g || 'Male',
+            bloodGroup: payload.pat.b || 'O+',
+            abhaId: payload.pat.h || '91-4920-8193-4412'
+          });
+        }
+        if (payload.inc && Array.isArray(payload.inc) && payload.inc.length > 0) {
+          const formatted = payload.inc.map((x: any) => ({
+            id: x.id,
+            title: x.t,
+            date: x.d,
+            hospital: x.h,
+            doctor: x.doc,
+            diagnosis: x.diag,
+            treatment: x.rx,
+            patientDescription: x.diag,
+            status: 'ACTIVE',
+            severity: 'MODERATE'
+          }));
+          setScannedIncidents(formatted);
+          setSelectedIncidentForAdvice(formatted[0].id);
+        } else {
+          setScannedIncidents(fallbackIncidents);
+          setSelectedIncidentForAdvice(fallbackIncidents[0]?.id || 'INC-001');
+        }
+
+        setTokenInput(token);
+        setIsHandshakeVerified(true);
+        showToast(`✅ Patient QR Handshake Verified: ${payload.pat?.n || 'Patient'} EMR unlocked!`, 'success');
+        return;
+      } catch (err) {
+        console.warn('AURA prefix JSON parse error:', err);
+      }
+    }
+
+    // 2. Check for legacy base64 data parameter (data=...)
     if (input.includes('data=')) {
       try {
         const match = input.match(/data=([^&]+)/);
@@ -97,14 +143,12 @@ export const DoctorPortal: React.FC = () => {
           if (payload.incidents && payload.incidents.length > 0) {
             setScannedIncidents(payload.incidents);
             setSelectedIncidentForAdvice(payload.incidents[0].id);
-          } else {
-            setScannedIncidents([]);
           }
           if (payload.medicines) setScannedMedicines(payload.medicines);
 
           setTokenInput(token);
           setIsHandshakeVerified(true);
-          showToast(`✅ Scanned Patient EMR Package: ${payload.patient?.name || 'Patient'} (${payload.incidents?.length || 0} episodes unlocked)`, 'success');
+          showToast(`✅ Scanned Patient EMR Package: ${payload.patient?.name || 'Patient'} records unlocked`, 'success');
           return;
         }
       } catch (err) {
@@ -112,7 +156,7 @@ export const DoctorPortal: React.FC = () => {
       }
     }
 
-    // Token direct match fallback
+    // 3. Direct Token / Patient Fallback Unpack
     setTokenInput(token);
     setScannedPatient({
       name: fallbackPatient.name || 'Krithik',
@@ -121,7 +165,7 @@ export const DoctorPortal: React.FC = () => {
       bloodGroup: fallbackPatient.bloodGroup || 'O+',
       abhaId: fallbackPatient.abhaId || '91-4920-8193-4412'
     });
-    setScannedIncidents(fallbackIncidents.length > 0 ? fallbackIncidents : [
+    const activeEpisodes = fallbackIncidents.length > 0 ? fallbackIncidents : [
       {
         id: 'INC-001',
         year: 2026,
@@ -129,21 +173,18 @@ export const DoctorPortal: React.FC = () => {
         title: 'Right Distal Radius Bone Fracture',
         hospital: 'SMS Hospital & Medical College, Jaipur',
         doctor: 'Dr. Ram, MS Ortho',
-        diagnosis: 'Right Forearm Distal Radius Fracture from fall',
+        diagnosis: 'Right Forearm Distal Radius Fracture from slip & fall',
         treatment: 'Closed reduction, fiberglass casting for 4 weeks, analgesics, and rest protocol',
-        patientDescription: 'Broke right arm after slip and fall.',
+        patientDescription: 'Broke right arm after fall.',
         status: 'ACTIVE',
         severity: 'MODERATE'
       }
-    ]);
-    if (fallbackIncidents.length > 0) {
-      setSelectedIncidentForAdvice(fallbackIncidents[0].id);
-    } else {
-      setSelectedIncidentForAdvice('INC-001');
-    }
+    ];
+    setScannedIncidents(activeEpisodes);
+    setSelectedIncidentForAdvice(activeEpisodes[0].id);
     setScannedMedicines(fallbackMedicines);
     setIsHandshakeVerified(true);
-    showToast(`✅ Patient Handshake Authenticated: ${token}. Records unlocked!`, 'success');
+    showToast(`✅ Token ${token} Authenticated. Records unlocked!`, 'success');
   };
 
   // High-performance continuous QR frame decoding with jsQR
@@ -238,7 +279,7 @@ export const DoctorPortal: React.FC = () => {
       }
     } catch (err) {
       console.warn('Camera permission or device error:', err);
-      setCameraError('Camera access was not granted. You can type the token code or tap an instant test token below.');
+      setCameraError('Camera access was not granted. You can enter the token code or tap instant test connect below.');
     }
   };
 
@@ -287,13 +328,13 @@ export const DoctorPortal: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-white">{currentUser?.name || 'Dr. Ram, MS Ortho'}</h1>
+              <h1 className="text-xl font-bold text-white">{currentUser?.name || 'Dr. Practitioner'}</h1>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand-emerald/20 text-brand-emerald font-bold">
-                {currentUser?.doctorRegNo || 'MCI-2014-9812'}
+                {currentUser?.doctorRegNo || 'MCI-VERIFIED'}
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              {currentUser?.specialty || 'Orthopedic & Trauma Surgery'} • {currentUser?.hospitalAffiliation || 'SMS Hospital & Medical College, Jaipur'}
+              {currentUser?.specialty || 'Clinical Surgery'} • {currentUser?.hospitalAffiliation || 'Hospital Trauma Center'}
             </p>
           </div>
         </div>
@@ -301,10 +342,10 @@ export const DoctorPortal: React.FC = () => {
         <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
           <button
             onClick={startCamera}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs shadow-glow-emerald hover:brightness-110 active:scale-95 transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs shadow-glow-emerald hover:brightness-110 active:scale-95 transition-all"
           >
             <Camera className="w-4 h-4 text-slate-950" />
-            <span>Open Camera QR Scanner</span>
+            <span>Open Camera Scanner</span>
           </button>
         </div>
       </div>
@@ -351,21 +392,21 @@ export const DoctorPortal: React.FC = () => {
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <QrCode className="w-4 h-4 text-brand-cyan" />
-              <span>Scan Patient QR Code or Enter Token</span>
+              <span>Patient Handshake & QR Code Verification</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Point camera at the patient's screen to load permitted longitudinal episodes.
+              Point your camera at the patient's laptop screen or type their 10-minute temporary token code.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               onClick={startCamera}
               type="button"
               className="px-4 py-2.5 rounded-xl bg-brand-emerald/20 hover:bg-brand-emerald/30 border border-brand-emerald/40 text-brand-emerald font-bold text-xs transition-colors flex items-center gap-1.5 shadow-glow-emerald"
             >
               <Camera className="w-4 h-4 text-brand-emerald" />
-              <span>Launch Camera Scanner</span>
+              <span>Camera Scan</span>
             </button>
 
             <form onSubmit={handleVerifyToken} className="flex items-center gap-2">
@@ -380,7 +421,7 @@ export const DoctorPortal: React.FC = () => {
                 type="submit"
                 className="px-4 py-2 rounded-xl bg-brand-emerald text-slate-950 font-bold text-xs hover:brightness-110 shadow-glow-emerald whitespace-nowrap"
               >
-                Verify
+                Verify Token
               </button>
             </form>
           </div>
@@ -389,7 +430,7 @@ export const DoctorPortal: React.FC = () => {
 
       {/* STANDBY STATE: When no patient QR has been scanned yet */}
       {!isHandshakeVerified && (
-        <div className="p-12 text-center rounded-3xl bg-[#090d16]/80 border border-white/[0.08] shadow-spatial-md space-y-4">
+        <div className="p-10 text-center rounded-3xl bg-[#090d16]/90 border border-white/[0.08] shadow-spatial-md space-y-4">
           <div className="w-16 h-16 rounded-3xl bg-brand-cyan/10 border border-brand-cyan/30 flex items-center justify-center text-brand-cyan mx-auto shadow-glow-cyan">
             <Lock className="w-8 h-8" />
           </div>
@@ -398,16 +439,26 @@ export const DoctorPortal: React.FC = () => {
               Patient Medical Records Protected
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              No patient data is unlocked yet. Point your camera at a patient's temporary QR code or enter their access token above to inspect their permitted medical history.
+              No patient data is unlocked yet. Point your camera at a patient's temporary QR code or enter their token code above to inspect their permitted medical history.
             </p>
           </div>
-          <button
-            onClick={startCamera}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-teal to-cyan-500 text-slate-950 font-bold text-xs shadow-glow-teal hover:brightness-110"
-          >
-            <Camera className="w-4 h-4" />
-            <span>Scan Patient QR Code Now</span>
-          </button>
+
+          <div className="pt-2 flex flex-wrap justify-center gap-3">
+            <button
+              onClick={startCamera}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-teal to-cyan-500 text-slate-950 font-bold text-xs shadow-glow-teal hover:brightness-110"
+            >
+              <Camera className="w-4 h-4" />
+              <span>Launch Camera Scanner</span>
+            </button>
+            <button
+              onClick={() => handleVerifyToken(undefined, 'AURA-SEC-1474-TOK')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white font-semibold text-xs"
+            >
+              <Sparkles className="w-4 h-4 text-brand-cyan" />
+              <span>1-Tap Test: Load Patient Krithik (INC-001)</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -594,6 +645,33 @@ export const DoctorPortal: React.FC = () => {
                 <p className="text-xs">{cameraError}</p>
               </div>
             )}
+          </div>
+
+          {/* Quick Simulation Trigger */}
+          <div className="space-y-2 pt-1">
+            <div className="text-[11px] font-mono text-slate-400">Can't scan? Tap an instant patient test connect:</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  stopCamera();
+                  handleVerifyToken(undefined, 'AURA-SEC-1474-TOK');
+                }}
+                className="p-2.5 rounded-xl bg-brand-emerald/15 hover:bg-brand-emerald/25 border border-brand-emerald/40 text-brand-emerald font-mono font-bold text-center"
+              >
+                Connect Token AURA-SEC-1474
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopCamera();
+                  handleVerifyToken(undefined, 'AURA-SEC-9102-TOK');
+                }}
+                className="p-2.5 rounded-xl bg-brand-cyan/15 hover:bg-brand-cyan/25 border border-brand-cyan/40 text-brand-cyan font-mono font-bold text-center"
+              >
+                Connect Token AURA-SEC-9102
+              </button>
+            </div>
           </div>
         </div>
       </Modal>

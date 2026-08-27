@@ -290,7 +290,40 @@ export const AuthPortal: React.FC = () => {
                 </button>
               </div>
 
-              <div className="text-center text-[11px] text-slate-400 pt-2">
+              <div className="pt-3 border-t border-white/5 space-y-2">
+                <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>Instant Verified Access</span>
+                  <span className="text-brand-emerald font-bold">1-Click Auto-Fill</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRole('PATIENT');
+                      setLoginIdentifier('Krithik');
+                      setLoginPassword('Krithik@2007');
+                    }}
+                    className="p-2.5 rounded-xl bg-brand-cyan/10 hover:bg-brand-cyan/20 border border-brand-cyan/30 text-left text-[11px] transition-all"
+                  >
+                    <div className="font-bold text-brand-cyan">Patient: Krithik</div>
+                    <div className="text-slate-400 text-[10px]">Pass: Krithik@2007</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRole('DOCTOR');
+                      setLoginIdentifier('Dr. Ram');
+                      setLoginPassword('Krithik@2007');
+                    }}
+                    className="p-2.5 rounded-xl bg-brand-emerald/10 hover:bg-brand-emerald/20 border border-brand-emerald/30 text-left text-[11px] transition-all"
+                  >
+                    <div className="font-bold text-brand-emerald">Doctor: Dr. Ram</div>
+                    <div className="text-slate-400 text-[10px]">Pass: Krithik@2007</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-center text-[11px] text-slate-400 pt-1">
                 Don't have an account yet?{' '}
                 <button
                   type="button"

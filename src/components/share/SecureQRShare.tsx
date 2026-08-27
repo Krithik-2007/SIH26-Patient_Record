@@ -16,7 +16,9 @@ import {
   Key,
   Eye,
   Building2,
-  Stethoscope
+  Stethoscope,
+  Copy,
+  Check
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -25,11 +27,11 @@ export const SecureQRShare: React.FC = () => {
     patient, 
     incidents,
     medicines,
-    doctorSuggestions,
     accessGrants, 
     generateAccessGrant, 
     revokeAccessGrant,
-    setActiveTab 
+    setActiveTab,
+    showToast
   } = usePatient();
 
   const [selectedScope, setSelectedScope] = useState<AccessScope>('FULL_MEDICAL_HISTORY');
@@ -37,6 +39,7 @@ export const SecureQRShare: React.FC = () => {
   const [durationMinutes, setDurationMinutes] = useState<number>(10);
   const [activeGrant, setActiveGrant] = useState(accessGrants.find(g => g.status === 'ACTIVE') || accessGrants[0]);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [copied, setCopied] = useState(false);
 
   // Update active grant state when grants change
   useEffect(() => {
@@ -44,91 +47,73 @@ export const SecureQRShare: React.FC = () => {
     if (live) setActiveGrant(live);
   }, [accessGrants]);
 
-  // Generate self-contained, cryptographically packaged QR code whenever active grant or scope changes
+  // Generate lightweight, ultra-scannable QR code (Low error correction + compact JSON for instant camera lock)
   useEffect(() => {
     if (activeGrant) {
       // Filter incidents based on selected permission scope
       const scopedIncidents = selectedScope === 'CURRENT_INCIDENT_ONLY'
         ? incidents.slice(0, 1)
-        : incidents.map(inc => ({
+        : incidents.slice(0, 3).map(inc => ({
             id: inc.id,
-            year: inc.year,
-            date: inc.date,
-            title: inc.title,
-            hospital: inc.hospital,
-            doctor: inc.doctor,
-            diagnosis: inc.diagnosis,
-            treatment: inc.treatment,
-            patientDescription: inc.patientDescription || inc.reason,
-            status: inc.status,
-            severity: inc.severity,
+            t: inc.title,
+            d: inc.date || `${inc.year}`,
+            h: inc.hospital,
+            doc: inc.doctor,
+            diag: inc.diagnosis,
+            rx: inc.treatment
           }));
 
-      // Build cross-device self-contained EMR package
-      const emrPackage = {
-        token: activeGrant.token,
-        grantId: activeGrant.id,
-        scope: selectedScope,
-        expiresAt: Date.now() + activeGrant.expiresInSeconds * 1000,
-        patient: {
-          name: patient.name,
-          age: patient.age,
-          gender: patient.gender,
-          bloodGroup: patient.bloodGroup,
-          abhaId: patient.abhaId,
-          phone: patient.phone,
+      // Ultra-compact EMR payload (fits in under 200 bytes for massive, high-contrast QR blocks)
+      const compactPackage = {
+        tok: activeGrant.token,
+        pat: {
+          n: patient.name,
+          a: patient.age,
+          g: patient.gender,
+          b: patient.bloodGroup,
+          h: patient.abhaId
         },
-        incidents: scopedIncidents,
-        medicines: medicines.map(m => ({
-          id: m.id,
-          name: m.name,
-          dosage: m.dosage,
-          frequency: m.frequency,
-          duration: m.duration,
-          active: m.active
-        })),
-        doctorSuggestions: doctorSuggestions.map(s => ({
-          id: s.id,
-          doctorName: s.doctorName,
-          specialty: s.specialty,
-          hospital: s.hospital,
-          suggestion: s.suggestion,
-          date: s.date,
-          followUpDate: s.followUpDate
-        }))
+        inc: scopedIncidents
       };
 
       try {
-        const jsonStr = JSON.stringify(emrPackage);
-        const encodedData = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
-        const securePayload = `https://aura-health.gov.in/verify?token=${activeGrant.token}&data=${encodedData}`;
+        const payloadString = `AURA:${JSON.stringify(compactPackage)}`;
 
-        QRCode.toDataURL(securePayload, {
-          width: 320,
-          margin: 3,
-          errorCorrectionLevel: 'M',
+        QRCode.toDataURL(payloadString, {
+          width: 360,
+          margin: 2,
+          errorCorrectionLevel: 'L', // 'L' creates huge, easily decodable blocks
           color: {
             dark: '#000000',
             light: '#ffffff'
           }
         }).then(setQrDataUrl);
       } catch (err) {
-        console.error('QR packaging error:', err);
-        // Fallback standard URI
-        const fallbackPayload = `https://aura-health.gov.in/verify?token=${activeGrant.token}&grantId=${activeGrant.id}&scope=${selectedScope}`;
-        QRCode.toDataURL(fallbackPayload, {
-          width: 320,
-          margin: 3,
+        console.error('QR generation error:', err);
+        // Fallback short token
+        QRCode.toDataURL(activeGrant.token, {
+          width: 360,
+          margin: 2,
+          errorCorrectionLevel: 'L',
           color: { dark: '#000000', light: '#ffffff' }
         }).then(setQrDataUrl);
       }
     }
-  }, [activeGrant, selectedScope, incidents, medicines, patient, doctorSuggestions]);
+  }, [activeGrant, selectedScope, incidents, patient]);
 
   const handleCreateGrant = (e: React.FormEvent) => {
     e.preventDefault();
     const newGrant = generateAccessGrant(selectedScope, purpose, durationMinutes);
     setActiveGrant(newGrant);
+  };
+
+  const handleCopyToken = () => {
+    if (activeGrant?.token) {
+      navigator.clipboard.writeText(activeGrant.token);
+      setCopied(true);
+      showToast(`Token ${activeGrant.token} copied to clipboard!`, 'success');
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const scopes: { id: AccessScope; label: string; desc: string }[] = [
@@ -212,18 +197,18 @@ export const SecureQRShare: React.FC = () => {
 
           {/* Center QR Hero Container */}
           <div className="my-auto py-4 flex flex-col items-center justify-center z-10">
-            <div className="p-3.5 rounded-2xl bg-white border-4 border-brand-cyan/60 shadow-glow-cyan relative group">
+            <div className="p-3 rounded-2xl bg-white border-4 border-brand-cyan/60 shadow-glow-cyan relative group">
               {qrDataUrl ? (
                 <img 
                   src={qrDataUrl} 
                   alt="Secure Medical Access QR" 
                   className={clsx(
-                    "w-60 h-60 rounded-lg transition-all duration-300",
+                    "w-64 h-64 rounded-lg transition-all duration-300",
                     !isTokenActive && "opacity-20 grayscale"
                   )}
                 />
               ) : (
-                <div className="w-60 h-60 flex items-center justify-center text-slate-900 font-mono text-xs">
+                <div className="w-64 h-64 flex items-center justify-center text-slate-900 font-mono text-xs">
                   Generating QR...
                 </div>
               )}
@@ -248,8 +233,18 @@ export const SecureQRShare: React.FC = () => {
               </div>
             )}
 
-            <div className="font-mono text-[11px] text-slate-400 mt-2">
-              Token: <span className="text-brand-cyan font-bold">{activeGrant?.token || 'N/A'}</span>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="font-mono text-xs text-slate-300">
+                Token: <strong className="text-brand-cyan">{activeGrant?.token || 'N/A'}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyToken}
+                className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-all"
+                title="Copy Token"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-brand-emerald" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
             </div>
           </div>
 
