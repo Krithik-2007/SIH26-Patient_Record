@@ -9,6 +9,7 @@ import { TimelineView } from './components/timeline/TimelineView';
 import { DocumentCenter } from './components/documents/DocumentCenter';
 import { MedicinesSchedule } from './components/medicines/MedicinesSchedule';
 import { AIHealthAssistant } from './components/ai/AIHealthAssistant';
+import { DietAndExercisePlanner } from './components/planner/DietAndExercisePlanner';
 import { SecureQRShare } from './components/share/SecureQRShare';
 import { HealthcareSchemes } from './components/schemes/HealthcareSchemes';
 import { DonationCampaigns } from './components/donations/DonationCampaigns';
@@ -116,6 +117,8 @@ const AppContent: React.FC = () => {
         return <DocumentCenter />;
       case 'medicines':
         return <MedicinesSchedule />;
+      case 'planner':
+        return <DietAndExercisePlanner />;
       case 'ai':
         return <AIHealthAssistant />;
       case 'share':

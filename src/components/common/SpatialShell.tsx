@@ -17,7 +17,8 @@ import {
   BookOpen,
   LogOut,
   ChevronRight,
-  AlertCircle
+  AlertCircle,
+  Utensils
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -49,6 +50,7 @@ export const SpatialShell: React.FC<SpatialShellProps> = ({ children }) => {
     { id: 'incidents', label: 'Episodes & Incidents', icon: Activity, badge: incidents.length > 0 ? `${incidents.length}` : null },
     { id: 'documents', label: 'Document Vault', icon: FileText, badge: documents.length > 0 ? `${documents.length}` : null },
     { id: 'medicines', label: 'Medicines & Alarms', icon: Pill, badge: pendingRemindersCount > 0 ? `${pendingRemindersCount}` : null },
+    { id: 'planner', label: 'Diet & Exercise Planner', icon: Utensils, badge: 'AI Plan' },
     { id: 'ai', label: 'Clinical AI Intelligence', icon: Sparkles, badge: 'Grounded' },
     { id: 'share', label: 'Secure QR Share', icon: QrCode, badge: activeGrant ? 'Active' : null },
     { id: 'schemes', label: 'Healthcare Schemes', icon: Landmark, badge: 'Eligible' },
